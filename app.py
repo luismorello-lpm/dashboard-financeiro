@@ -34,7 +34,12 @@ def carregar_dados(caminho_arquivo):
 def salvar_dados(df, caminho_arquivo):
     """Salva o DataFrame no arquivo CSV, sobrescrevendo o conteúdo existente."""
     try:
-        df.to_csv(caminho_arquivo, sep=';', encoding='latin-1', index=False)
+        # Garante que a coluna 'Valor Financeiro' não seja salva no CSV
+        if 'Valor Financeiro' in df.columns:
+            df_para_salvar = df.drop(columns=['Valor Financeiro'])
+        else:
+            df_para_salvar = df
+        df_para_salvar.to_csv(caminho_arquivo, sep=';', encoding='latin-1', index=False)
         return True
     except Exception as e:
         st.error(f"ERRO ao salvar o arquivo: {e}")
@@ -63,7 +68,7 @@ def pagina_relatorio():
     df['Mês'] = df['Mês'].astype(str).str.strip()
     df['Ano'] = pd.to_numeric(df['Ano'], errors='coerce')
     df.dropna(subset=['Valor', 'Ano', 'Mês'], inplace=True)
-    df['Valor Finaceiro'] = np.where(df['Tipo'] == 'Despesa', -df['Valor'], df['Valor'])
+    df['Valor Financeiro'] = np.where(df['Tipo'] == 'Despesa', -df['Valor'], df['Valor'])
 
     # Interface do usuário
     col1, col2 = st.columns(2)
@@ -80,8 +85,8 @@ def pagina_relatorio():
             st.warning(f"Nenhum dado encontrado para {nome_mes}/{ano}.")
             return
 
-        receitas = df_mes[df_mes['Valor Finaceiro'] > 0]['Valor Finaceiro'].sum()
-        despesas = df_mes[df_mes['Valor Finaceiro'] < 0]['Valor Finaceiro'].sum()
+        receitas = df_mes[df_mes['Valor Financeiro'] > 0]['Valor Financeiro'].sum()
+        despesas = df_mes[df_mes['Valor Financeiro'] < 0]['Valor Financeiro'].sum()
         saldo = receitas + despesas
 
         st.subheader(f"Resumo para {nome_mes.upper()}/{ano}")
@@ -402,7 +407,7 @@ def pagina_gerenciar():
             st.dataframe(df.loc[[index_alvo]], hide_index=True)
 
             with st.expander("✏️ Editar este lançamento"):
-                colunas_editaveis = df.columns.drop('ID').tolist()
+                colunas_editaveis = df.columns.drop(['ID', 'Valor Finaceiro'], errors='ignore').tolist()
                 coluna_para_editar = st.selectbox("Qual coluna deseja editar?", colunas_editaveis, key="edit_column_select")
                 
                 with st.form(key=f"edit_form_{coluna_para_editar}"):
