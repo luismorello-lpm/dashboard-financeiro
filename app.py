@@ -34,11 +34,8 @@ def carregar_dados(caminho_arquivo):
 def salvar_dados(df, caminho_arquivo):
     """Salva o DataFrame no arquivo CSV, sobrescrevendo o conteúdo existente."""
     try:
-        # Garante que a coluna 'Valor Financeiro' não seja salva no CSV
-        if 'Valor Financeiro' in df.columns:
-            df_para_salvar = df.drop(columns=['Valor Financeiro'])
-        else:
-            df_para_salvar = df
+        # A coluna 'Valor Financeiro' é criada apenas em memória e não deve ser salva.
+        df_para_salvar = df.drop(columns=['Valor Financeiro'], errors='ignore')
         df_para_salvar.to_csv(caminho_arquivo, sep=';', encoding='latin-1', index=False)
         return True
     except Exception as e:
@@ -68,6 +65,7 @@ def pagina_relatorio():
     df['Mês'] = df['Mês'].astype(str).str.strip()
     df['Ano'] = pd.to_numeric(df['Ano'], errors='coerce')
     df.dropna(subset=['Valor', 'Ano', 'Mês'], inplace=True)
+    # Cria a coluna 'Valor Financeiro' em memória para os cálculos
     df['Valor Financeiro'] = np.where(df['Tipo'] == 'Despesa', -df['Valor'], df['Valor'])
 
     # Interface do usuário
@@ -407,7 +405,11 @@ def pagina_gerenciar():
             st.dataframe(df.loc[[index_alvo]], hide_index=True)
 
             with st.expander("✏️ Editar este lançamento"):
-                colunas_editaveis = df.columns.drop(['ID', 'Valor Finaceiro'], errors='ignore').tolist()
+                colunas_editaveis = df.columns.tolist()
+                if 'Valor Finaceiro' in colunas_editaveis:
+                    colunas_editaveis.remove('Valor Finaceiro')
+                colunas_editaveis.remove('ID')
+
                 coluna_para_editar = st.selectbox("Qual coluna deseja editar?", colunas_editaveis, key="edit_column_select")
                 
                 with st.form(key=f"edit_form_{coluna_para_editar}"):
