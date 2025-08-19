@@ -380,7 +380,6 @@ def pagina_gerenciar():
     if df is None:
         return
 
-    # Usar session state para manter o ID entre as execuções
     if 'id_gerenciar' not in st.session_state:
         st.session_state.id_gerenciar = 0
 
@@ -393,55 +392,59 @@ def pagina_gerenciar():
 
     if st.button("Buscar ID"):
         st.session_state.id_gerenciar = id_input
+        st.rerun()
 
     if st.session_state.id_gerenciar > 0:
         if st.session_state.id_gerenciar in df['ID'].values:
             index_alvo = df.index[df['ID'] == st.session_state.id_gerenciar].tolist()[0]
-            lancamento = df.loc[[index_alvo]]
             
             st.subheader(f"Detalhes do Lançamento ID: {st.session_state.id_gerenciar}")
-            st.dataframe(lancamento, hide_index=True)
+            st.dataframe(df.loc[[index_alvo]], hide_index=True)
 
-            # --- Expander de Edição ---
             with st.expander("✏️ Editar este lançamento"):
-                with st.form("edit_form"):
-                    colunas_editaveis = df.columns.drop('ID').tolist()
-                    coluna_para_editar = st.selectbox("Qual coluna deseja editar?", colunas_editaveis)
-                    
+                colunas_editaveis = df.columns.drop('ID').tolist()
+                coluna_para_editar = st.selectbox("Qual coluna deseja editar?", colunas_editaveis, key="edit_column_select")
+                
+                with st.form(key=f"edit_form_{coluna_para_editar}"):
                     valor_atual = df.loc[index_alvo, coluna_para_editar]
                     
-                    # Determinar o tipo de input com base na coluna
+                    st.write(f"Editando a coluna: **{coluna_para_editar}**")
+                    
+                    novo_valor = None
                     if coluna_para_editar == 'Data':
                         try:
                             default_date = datetime.strptime(str(valor_atual), '%d/%m/%Y')
-                        except:
+                        except (ValueError, TypeError):
                             default_date = datetime.now()
-                        novo_valor_input = st.date_input("Novo valor", value=default_date)
-                        novo_valor = novo_valor_input.strftime('%d/%m/%Y')
+                        novo_valor = st.date_input("Novo valor", value=default_date)
                     elif coluna_para_editar == 'Valor':
-                        novo_valor = st.number_input("Novo valor", value=float(valor_atual), format="%.2f")
+                        try:
+                            valor_atual_float = float(clean_valor(valor_atual))
+                        except (ValueError, TypeError):
+                            valor_atual_float = 0.0
+                        novo_valor = st.number_input("Novo valor", value=valor_atual_float, format="%.2f")
                     else:
                         novo_valor = st.text_input("Novo valor", value=str(valor_atual))
 
                     edit_submitted = st.form_submit_button("Salvar Alteração")
 
                     if edit_submitted:
-                        df.loc[index_alvo, coluna_para_editar] = novo_valor
+                        valor_final = novo_valor.strftime('%d/%m/%Y') if isinstance(novo_valor, (datetime, pd.Timestamp)) else novo_valor
+                        df.loc[index_alvo, coluna_para_editar] = valor_final
                         if salvar_dados(df, CAMINHO_ARQUIVO):
                             st.success(f"Coluna '{coluna_para_editar}' do ID {st.session_state.id_gerenciar} atualizada!")
                             st.rerun()
                         else:
                             st.error("Falha ao salvar os dados.")
 
-            # --- Expander de Exclusão ---
             with st.expander("🗑️ Excluir este lançamento"):
                 st.warning("Esta ação é permanente e não pode ser desfeita.")
                 if st.button("Confirmar Exclusão"):
                     df = df.drop(index_alvo).copy()
-                    df['ID'] = range(1, len(df) + 1) # Reordenar IDs
+                    df['ID'] = range(1, len(df) + 1)
                     if salvar_dados(df, CAMINHO_ARQUIVO):
                         st.success(f"Lançamento ID {st.session_state.id_gerenciar} foi excluído.")
-                        st.session_state.id_gerenciar = 0 # Resetar ID
+                        st.session_state.id_gerenciar = 0
                         st.rerun()
         else:
             st.error(f"ID {st.session_state.id_gerenciar} não encontrado. Pode ter sido excluído.")
@@ -466,13 +469,11 @@ def pagina_faturas():
     if st.button("Ver Fatura"):
         nome_mes = MAPA_MESES.get(mes_num)
         
-        # Limpeza de dados necessária para a filtragem
         df['Ano'] = pd.to_numeric(df['Ano'], errors='coerce')
         df['Valor'] = df['Valor'].astype(str).apply(clean_valor)
         df['Valor'] = pd.to_numeric(df['Valor'], errors='coerce')
         df.dropna(subset=['Valor', 'Ano', 'Mês', 'Forma de Pagamento'], inplace=True)
 
-        # Filtrar pela fatura específica
         fatura_df = df[
             (df['Forma de Pagamento'] == cartao_selecionado) &
             (df['Ano'] == ano) & 
