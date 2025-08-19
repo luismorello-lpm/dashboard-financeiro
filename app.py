@@ -405,11 +405,7 @@ def pagina_gerenciar():
             st.dataframe(df.loc[[index_alvo]], hide_index=True)
 
             with st.expander("✏️ Editar este lançamento"):
-                colunas_editaveis = df.columns.tolist()
-                if 'Valor Finaceiro' in colunas_editaveis:
-                    colunas_editaveis.remove('Valor Finaceiro')
-                colunas_editaveis.remove('ID')
-
+                colunas_editaveis = df.columns.drop(['ID', 'Valor Finaceiro'], errors='ignore').tolist()
                 coluna_para_editar = st.selectbox("Qual coluna deseja editar?", colunas_editaveis, key="edit_column_select")
                 
                 with st.form(key=f"edit_form_{coluna_para_editar}"):
