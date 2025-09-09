@@ -40,28 +40,13 @@ MAPA_MESES = {
 MESES_ORDENADOS = list(MAPA_MESES.values())
 
 def clean_valor(valor_str):
-    """
-    Função robusta para limpar e converter uma string de moeda para um float.
-    Analisa a posição dos pontos e vírgulas para lidar com formatos brasileiros e americanos.
-    """
     s = str(valor_str).strip().replace('R$', '').replace(' ', '')
-    
-    if not s:
-        return np.nan
-
+    if not s: return np.nan
     last_comma = s.rfind(',')
     last_dot = s.rfind('.')
-    
-    # Formato brasileiro: a vírgula é o separador decimal (ex: 1.234,56)
-    if last_comma > last_dot:
-        s = s.replace('.', '').replace(',', '.')
-    # Formato americano/Python: o ponto é o separador decimal (ex: 1,234.56)
-    elif last_dot > last_comma:
-        s = s.replace(',', '')
-    # Apenas vírgula existe, assume que é decimal (ex: 1234,56)
-    elif last_comma != -1 and last_dot == -1:
-        s = s.replace(',', '.')
-        
+    if last_comma > last_dot: s = s.replace('.', '').replace(',', '.')
+    elif last_dot > last_comma: s = s.replace(',', '')
+    elif last_comma != -1 and last_dot == -1: s = s.replace(',', '.')
     return pd.to_numeric(s, errors='coerce')
 
 @st.cache_data(ttl=60)
@@ -71,26 +56,20 @@ def carregar_dados():
         try:
             spreadsheet = client.open(NOME_DA_PLANILHA)
             worksheet = spreadsheet.sheet1
-            # Obtém todos os valores como strings para garantir a consistência da análise
             data = worksheet.get_all_values()
-            if not data or len(data) < 2:
-                return pd.DataFrame()
+            if not data or len(data) < 2: return pd.DataFrame()
             
             df = pd.DataFrame(data[1:], columns=[h.strip() for h in data[0]])
             
             colunas_numericas = ['ID', 'Ano', 'Valor']
             for col in colunas_numericas:
                 if col in df.columns:
-                    if col == 'Valor':
-                        df[col] = df[col].apply(clean_valor)
-                    else:
-                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    if col == 'Valor': df[col] = df[col].apply(clean_valor)
+                    else: df[col] = pd.to_numeric(df[col], errors='coerce')
 
             df.dropna(subset=['ID'], inplace=True)
             df['ID'] = df['ID'].astype(int)
-            
             df['Mês'] = pd.Categorical(df['Mês'], categories=MESES_ORDENADOS, ordered=True)
-
             return df
         except Exception as e:
             st.error(f"Erro ao carregar os dados da planilha: {e}")
@@ -108,20 +87,66 @@ def salvar_dados(df):
             if 'Valor' in df_para_salvar.columns:
                  df_para_salvar['Valor'] = df_para_salvar['Valor'].apply(lambda x: f"{x:.2f}".replace('.', ',') if pd.notna(x) else '')
             
-            # Garante que todas as colunas são convertidas para string antes de salvar
             for col in df_para_salvar.columns:
                 df_para_salvar[col] = df_para_salvar[col].astype(str)
 
             worksheet.clear()
             set_with_dataframe(worksheet, df_para_salvar, include_index=False, include_column_header=True, resize=True)
-            st.cache_data.clear() # Limpa o cache para forçar o recarregamento dos dados
+            st.cache_data.clear()
             return True
         except Exception as e:
             st.error(f"ERRO ao salvar os dados na planilha: {e}")
             return False
     return False
     
-# --- PÁGINAS DO STREAMLIT (o resto do código permanece igual) ---
+# --- PÁGINAS DO STREAMLIT ---
+
+def pagina_inicial():
+    st.title("🏠 Página Inicial")
+    st.subheader("Resumo do Mês Corrente")
+
+    df = carregar_dados()
+    if df is None or df.empty:
+        st.warning("A base de dados está vazia. Adicione um lançamento para começar.")
+        return
+
+    df['Valor Financeiro'] = np.where(df['Tipo'] == 'Despesa', -df['Valor'], df['Valor'])
+    
+    ano_atual = datetime.now().year
+    mes_atual_nome = MAPA_MESES[datetime.now().month]
+
+    df_mes_atual = df[(df['Ano'] == ano_atual) & (df['Mês'] == mes_atual_nome)].copy()
+
+    if df_mes_atual.empty:
+        st.info(f"Nenhum dado encontrado para {mes_atual_nome}/{ano_atual}.")
+    else:
+        receitas = df_mes_atual[df_mes_atual['Valor Financeiro'] > 0]['Valor Financeiro'].sum()
+        despesas = df_mes_atual[df_mes_atual['Valor Financeiro'] < 0]['Valor Financeiro'].sum()
+        saldo = receitas + despesas
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("🟢 Receitas Totais", f"R$ {receitas:,.2f}")
+        col2.metric("🔴 Despesas Totais", f"R$ {despesas:,.2f}")
+        col3.metric("💰 Saldo do Mês", f"R$ {saldo:,.2f}")
+
+        st.markdown("---")
+        
+        col1, col2 = st.columns([2, 3])
+        with col1:
+            st.subheader("Últimos 5 Lançamentos")
+            st.dataframe(df.tail(5), hide_index=True)
+        
+        with col2:
+            st.subheader("Distribuição de Despesas do Mês")
+            despesas_df = df_mes_atual[df_mes_atual['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum()
+            if not despesas_df.empty:
+                fig, ax = plt.subplots(figsize=(8, 6))
+                ax.pie(despesas_df, labels=despesas_df.index, autopct=lambda p: f'R$ {p*despesas_df.sum()/100:.2f}\n({p:.1f}%)', startangle=90)
+                ax.axis('equal')
+                st.pyplot(fig)
+            else:
+                st.info("Nenhuma despesa registrada para este mês.")
+
 
 def pagina_adicionar():
     st.title("✍️ Adicionar Novo Lançamento")
@@ -280,10 +305,8 @@ def pagina_gerenciar():
                     
                     novo_valor = None
                     if coluna_para_editar == 'Data':
-                        try:
-                            default_date = datetime.strptime(str(valor_atual), '%d/%m/%Y')
-                        except:
-                            default_date = datetime.now()
+                        try: default_date = datetime.strptime(str(valor_atual), '%d/%m/%Y')
+                        except: default_date = datetime.now()
                         novo_valor = st.date_input("Novo valor", value=default_date)
                     elif coluna_para_editar == 'Valor':
                         novo_valor = st.number_input("Novo valor", value=float(valor_atual), format="%.2f")
@@ -392,7 +415,6 @@ def pagina_faturas():
 
 def pagina_graficos():
     st.title("🎨 Gerador de Gráficos Analíticos")
-
     df = carregar_dados()
     if df is None or df.empty:
         st.warning("Nenhum dado para gerar gráficos.")
@@ -434,8 +456,7 @@ def pagina_graficos():
                     ax.pie(despesas_df, labels=despesas_df.index, autopct=lambda p: f'R$ {p*despesas_df.sum()/100:.2f}\n({p:.1f}%)', startangle=90)
                     ax.axis('equal')
                     st.pyplot(fig)
-                else:
-                    st.info("Nenhuma despesa encontrada.")
+                else: st.info("Nenhuma despesa encontrada.")
 
             elif tipo_grafico == 'cc_mensal':
                 st.subheader(f"Gastos com Cartão de Crédito - {nome_mes}/{ano}")
@@ -445,13 +466,11 @@ def pagina_graficos():
                     fig, ax = plt.subplots(figsize=(8, 5))
                     bars = ax.bar(cc_df.index, cc_df.values, color=['purple', 'red', 'blue'])
                     ax.set_ylabel('Valor Gasto (R$)')
-                    ax.set_xticklabels(cc_df.index, rotation=45, ha="right")
                     for bar in bars:
                         yval = bar.get_height()
                         ax.text(bar.get_x() + bar.get_width()/2.0, yval, f'R$ {yval:,.2f}', va='bottom', ha='center')
                     st.pyplot(fig)
-                else:
-                    st.info("Nenhum gasto com cartão de crédito encontrado.")
+                else: st.info("Nenhum gasto com cartão de crédito encontrado.")
             
             elif tipo_grafico == 'class_mensal':
                 st.subheader(f"Despesas por Classificação - {nome_mes}/{ano}")
@@ -461,17 +480,14 @@ def pagina_graficos():
                     ax.pie(class_df, labels=class_df.index, autopct=lambda p: f'R$ {p*class_df.sum()/100:.2f}\n({p:.1f}%)', startangle=90)
                     ax.axis('equal')
                     st.pyplot(fig)
-                else:
-                    st.info("Nenhuma despesa classificada encontrada.")
+                else: st.info("Nenhuma despesa classificada encontrada.")
 
     elif tipo_grafico.endswith("_anual"):
         ano = st.number_input("Ano", min_value=2020, max_value=2030, value=datetime.now().year, key="graf_ano_anual")
         
         if st.button("Gerar Gráfico Anual"):
             df_ano = df[df['Ano'] == ano].copy()
-            if df_ano.empty:
-                st.warning(f"Nenhum dado para o ano de {ano}.")
-                return
+            if df_ano.empty: st.warning(f"Nenhum dado para o ano de {ano}."); return
 
             if tipo_grafico == 'cat_anual':
                 st.subheader(f"Despesas por Categoria - {ano}")
@@ -481,8 +497,7 @@ def pagina_graficos():
                     ax.pie(despesas_df, labels=despesas_df.index, autopct=lambda p: f'R$ {p*despesas_df.sum()/100:,.2f}\n({p:.1f}%)', startangle=90)
                     ax.axis('equal')
                     st.pyplot(fig)
-                else:
-                    st.info("Nenhuma despesa encontrada.")
+                else: st.info("Nenhuma despesa encontrada.")
             
             elif tipo_grafico == 'balanco_anual':
                 st.subheader(f"Balanço Anual - {ano}")
@@ -490,12 +505,9 @@ def pagina_graficos():
                 if not balanco.empty:
                     fig, ax = plt.subplots(figsize=(12, 6))
                     balanco.plot(kind='bar', stacked=True, ax=ax, color={'Receita': 'green', 'Despesa': 'red', 'Sobra': 'blue'})
-                    ax.set_ylabel('Valor (R$)')
-                    ax.set_xlabel('Mês')
-                    plt.xticks(rotation=45)
+                    ax.set_ylabel('Valor (R$)'); ax.set_xlabel('Mês'); plt.xticks(rotation=45)
                     st.pyplot(fig)
-                else:
-                    st.info("Nenhum dado para o balanço anual.")
+                else: st.info("Nenhum dado para o balanço anual.")
 
             elif tipo_grafico == 'faturas_anual':
                 st.subheader(f"Faturas de Cartão de Crédito - {ano}")
@@ -505,26 +517,21 @@ def pagina_graficos():
                 if not faturas.empty:
                     fig, ax = plt.subplots(figsize=(12, 6))
                     faturas.plot(kind='bar', stacked=True, ax=ax, color={'Crédito Nubank': 'purple', 'Crédito Santander': 'red', 'Crédito BTG': 'blue'})
-                    ax.set_ylabel('Valor da Fatura (R$)')
-                    ax.set_xlabel('Mês')
-                    plt.xticks(rotation=45)
+                    ax.set_ylabel('Valor da Fatura (R$)'); ax.set_xlabel('Mês'); plt.xticks(rotation=45)
                     st.pyplot(fig)
-                else:
-                    st.info("Nenhum gasto com cartão de crédito encontrado.")
-
+                else: st.info("Nenhum gasto com cartão de crédito encontrado.")
 
 # --- ESTRUTURA PRINCIPAL DO APP ---
 
 st.sidebar.title("🏛️ Menu Principal")
 paginas = {
+    "Página Inicial": pagina_inicial,
     "Adicionar Lançamento": pagina_adicionar,
     "Gerenciar Lançamento": pagina_gerenciar,
     "Relatório Mensal": pagina_relatorio,
     "Ver Faturas de Cartão": pagina_faturas,
     "Gráficos Analíticos": pagina_graficos,
 }
-
 escolha = st.sidebar.radio("Navegue pelas páginas", list(paginas.keys()))
-
 paginas[escolha]()
-
+```
