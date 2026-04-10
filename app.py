@@ -15,6 +15,13 @@ st.set_page_config(
     layout="wide"
 )
 
+# --- LÓGICA DE NAVEGAÇÃO VIA URL (QUERY PARAMS) ---
+# Se houver um ID na URL, setamos a página para 'Gerenciar Lançamento'
+query_params = st.query_params
+if "editar_id" in query_params:
+    st.session_state.pagina_atual = "Gerenciar Lançamento"
+    st.session_state.id_para_editar = int(query_params["editar_id"])
+
 # --- CONFIGURAÇÃO DA CONEXÃO ---
 NOME_DA_PLANILHA = "DashboardFinanceiroDB"
 SCOPES = [
@@ -251,10 +258,17 @@ def pagina_gerenciar():
     st.title("🛠️ Gerenciar Lançamento")
     df = carregar_dados()
     
-    # Se viemos de um link do relatório, o ID já estará no session_state
-    id_default = st.session_state.get('id_para_editar', 1)
+    # Se houver um ID pendente da URL, usamos ele. Se não, limpamos.
+    if "id_para_editar" in st.session_state:
+        id_default = st.session_state.id_para_editar
+        # Removemos para que o usuário possa trocar depois sem ficar "preso"
+        del st.session_state.id_para_editar
+        # Limpamos a URL também para não ficar voltando ao recarregar
+        st.query_params.clear()
+    else:
+        id_default = 1
     
-    id_input = st.number_input("ID do lançamento", min_value=1, value=int(id_default))
+    id_input = st.number_input("ID do lançamento", min_value=1, value=int(id_default), key="id_gerenciar_input")
     
     if st.button("Buscar"):
         res = df[df['ID'] == id_input]
@@ -262,10 +276,7 @@ def pagina_gerenciar():
             st.dataframe(res, hide_index=True)
             if st.button("Excluir"):
                 df = df[df['ID'] != id_input]
-                if salvar_dados(df): 
-                    st.success("Excluído!")
-                    if 'id_para_editar' in st.session_state: del st.session_state['id_para_editar']
-                    st.rerun()
+                if salvar_dados(df): st.success("Excluído!"); st.rerun()
         else: st.error("ID não encontrado.")
 
 def pagina_relatorio():
@@ -279,23 +290,25 @@ def pagina_relatorio():
         df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])].copy()
         
         if not df_r.empty:
-            # Criamos uma coluna de 'Link' que contém apenas o ID
-            # O Streamlit vai usar isso para permitir a navegação
-            cols = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
+            # CRIANDO O LINK PARA EDIÇÃO
+            # O link vai apontar para a própria URL com o parâmetro 'editar_id'
+            base_url = "https://dashboardfinanceiro-lpm.streamlit.app/" # Sua URL oficial
+            df_r['Link_Editar'] = df_r['ID'].apply(lambda x: f"{base_url}?editar_id={x}")
+
+            cols_show = ['ID', 'Link_Editar', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
             
-            # CONFIGURAÇÃO DE COLUNA PARA LINK
             st.dataframe(
-                df_r[cols],
+                df_r[cols_show],
                 hide_index=True,
                 column_config={
-                    "ID": st.column_config.NumberColumn(
-                        "ID (Clique p/ Editar)",
-                        help="Anote o ID e use na aba Gerenciar",
-                        format="%d"
-                    )
+                    "Link_Editar": st.column_config.LinkColumn(
+                        "📝 Editar",
+                        help="Clique para editar este lançamento",
+                        display_text="Abrir Edição"
+                    ),
+                    "ID": st.column_config.NumberColumn(format="%d")
                 }
             )
-            st.info("💡 Dica: Para editar, copie o ID desejado e vá para a aba 'Gerenciar Lançamento'.")
         else: st.warning("Sem dados.")
 
 def pagina_faturas():
@@ -386,5 +399,14 @@ paginas = {
     "Configurações de Categoria": pagina_configuracoes,
     "Gráficos Analíticos": pagina_graficos
 }
-escolha = st.sidebar.radio("Navegue pelas páginas", list(paginas.keys()))
+
+# Verificamos se há uma página forçada pelo link de edição
+pagina_ativa = st.session_state.get("pagina_atual", "Página Inicial")
+idx_menu = list(paginas.keys()).index(pagina_ativa)
+
+escolha = st.sidebar.radio("Navegue pelas páginas", list(paginas.keys()), index=idx_menu)
+
+# Limpamos o estado de navegação após a escolha ser feita
+if "pagina_atual" in st.session_state: del st.session_state.pagina_atual
+
 paginas[escolha]()
