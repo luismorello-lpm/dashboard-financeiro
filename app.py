@@ -123,12 +123,13 @@ def excluir_categoria_db(cat_nome, cat_substituta):
     if client:
         try:
             spreadsheet = client.open(NOME_DA_PLANILHA)
-            ws_dados = spreadsheet.sheet1
-            dados = ws_dados.get_all_values()
-            df_temp = pd.DataFrame(dados[1:], columns=dados[0])
-            if 'Categoria' in df_temp.columns:
-                df_temp['Categoria'] = df_temp['Categoria'].replace(cat_nome, cat_substituta)
-                salvar_dados(df_temp)
+            # Atualiza registros na planilha principal
+            df_atual = carregar_dados()
+            if not df_atual.empty and 'Categoria' in df_atual.columns:
+                df_atual['Categoria'] = df_atual['Categoria'].replace(cat_nome, cat_substituta)
+                salvar_dados(df_atual)
+            
+            # Remove da lista de categorias
             ws_cat = spreadsheet.worksheet("Categorias")
             celula = ws_cat.find(cat_nome)
             if celula: ws_cat.delete_rows(celula.row)
@@ -142,17 +143,25 @@ def editar_categoria_db(nome_antigo, nome_novo):
     if client:
         try:
             spreadsheet = client.open(NOME_DA_PLANILHA)
+            
+            # 1. Atualizar na aba 'Categorias'
             ws_cat = spreadsheet.worksheet("Categorias")
             celula = ws_cat.find(nome_antigo)
-            if celula: ws_cat.update_cell(celula.row, celula.col, nome_novo)
-            ws_dados = spreadsheet.sheet1
-            dados = ws_dados.get_all_values()
-            df_temp = pd.DataFrame(dados[1:], columns=dados[0])
-            if 'Categoria' in df_temp.columns:
-                df_temp['Categoria'] = df_temp['Categoria'].replace(nome_antigo, nome_novo)
-                salvar_dados(df_temp)
+            if celula:
+                ws_cat.update_cell(celula.row, celula.col, nome_novo)
+            
+            # 2. Atualizar todos os lançamentos na planilha principal (Sheet1)
+            df_atual = carregar_dados()
+            if not df_atual.empty and 'Categoria' in df_atual.columns:
+                # Substitui o nome antigo pelo novo em toda a coluna
+                df_atual['Categoria'] = df_atual['Categoria'].replace(nome_antigo, nome_novo)
+                salvar_dados(df_atual)
+            
+            st.cache_data.clear()
             return True
-        except: return False
+        except Exception as e:
+            st.error(f"Erro ao atualizar registros: {e}")
+            return False
     return False
 
 # --- PÁGINAS ---
@@ -240,7 +249,6 @@ def pagina_adicionar():
         if submitted:
             novos_lancamentos = []
             pago_str = 'OK' if pago == 'Sim' else 'NOK'
-            
             if tipo != 'Despesa' or forma == 'À Vista':
                 novo = {
                     'ID': proximo_id, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 
@@ -268,7 +276,6 @@ def pagina_adicionar():
                         'Observações': obs, 'Mês': MAPA_MESES[m_atual], 'Ano': a_atual
                     }
                     novos_lancamentos.append(novo)
-            
             df_final = pd.concat([df_existente, pd.DataFrame(novos_lancamentos)], ignore_index=True)
             if salvar_dados(df_final): st.success("Adicionado!"); st.rerun()
 
@@ -279,7 +286,6 @@ def pagina_gerenciar():
         st.warning("Base de dados vazia.")
         return
 
-    # 1. Busca por ID com Botão
     col_id, col_btn = st.columns([3, 1])
     id_input = col_id.number_input("Digite o ID do lançamento", min_value=1, step=1)
     btn_buscar = col_btn.button("🔍 Buscar Lançamento", use_container_width=True)
@@ -289,18 +295,13 @@ def pagina_gerenciar():
 
     if 'id_gerenciar' in st.session_state:
         id_atual = st.session_state.id_gerenciar
-        
         if id_atual in df['ID'].values:
             idx_alvo = df.index[df['ID'] == id_atual].tolist()[0]
             dados_atuais = df.loc[idx_alvo]
-
             st.success(f"Lançamento ID {id_atual} encontrado!")
             st.dataframe(df.loc[[idx_alvo]], hide_index=True)
             st.markdown("---")
-            
             col_edit, col_del = st.columns(2)
-
-            # 2. Central de Edição sob demanda (Expander)
             with col_edit:
                 with st.expander("📝 Editar Lançamento"):
                     with st.form("form_edicao_lancamento"):
@@ -326,14 +327,12 @@ def pagina_gerenciar():
                             status_val = str(dados_atuais['Pagamento Realizado']).upper()
                             novo_pago = st.selectbox("Pago?", status_atuais, index=status_atuais.index(status_val) if status_val in status_atuais else 1)
                             novas_parc = st.text_input("Parcelas", value=str(dados_atuais['Parcelas']))
-                        
                         novas_obs = st.text_area("Observações", value=str(dados_atuais['Observações']))
                         ca1, ca2 = st.columns(2)
                         try: mes_idx = MESES_ORDENADOS.index(dados_atuais['Mês'])
                         except: mes_idx = 0
                         novo_mes = ca1.selectbox("Mês Contábil", MESES_ORDENADOS, index=mes_idx)
                         novo_ano = ca2.number_input("Ano Contábil", value=int(dados_atuais['Ano']), step=1)
-
                         if st.form_submit_button("💾 Salvar Alterações"):
                             df.at[idx_alvo, 'Data'] = nova_data
                             df.at[idx_alvo, 'Tipo'] = novo_tipo
@@ -349,23 +348,16 @@ def pagina_gerenciar():
                             df.at[idx_alvo, 'Parcelas'] = novas_parc
                             if salvar_dados(df):
                                 st.toast(f"ID {id_atual} atualizado!", icon="✅")
-                                st.subheader("✅ Como ficou a edição:")
-                                st.dataframe(df.loc[[idx_alvo]], hide_index=True)
                                 st.rerun()
-
-            # 3. Exclusão com Confirmação (Pop-over)
             with col_del:
                 with st.popover("🗑️ Excluir Lançamento"):
-                    st.warning(f"Deseja realmente apagar o ID {id_atual}?")
+                    st.warning(f"Deseja apagar o ID {id_atual}?")
                     if st.button(f"Confirmar Exclusão do ID {id_atual}", type="primary"):
                         df = df.drop(idx_alvo).reset_index(drop=True)
                         if not df.empty: df['ID'] = range(1, len(df) + 1)
                         if salvar_dados(df):
-                            st.success(f"O lançamento ID {id_atual} foi excluído com sucesso!")
-                            del st.session_state.id_gerenciar
-                            st.rerun()
-        else:
-            st.error(f"ID {id_atual} não encontrado.")
+                            st.success(f"ID {id_atual} excluído!"); del st.session_state.id_gerenciar; st.rerun()
+        else: st.error(f"ID {id_atual} não encontrado.")
 
 def pagina_relatorio():
     st.title("📊 Gerador de Relatório Financeiro")
@@ -410,7 +402,10 @@ def pagina_configuracoes():
         novo_n = st.text_input("Novo Nome")
         if st.button("Atualizar"):
             if ed_cat != "Selecione..." and novo_n:
-                if editar_categoria_db(ed_cat, novo_n): st.success("Atualizada!"); st.rerun()
+                with st.spinner("Atualizando registros na planilha principal..."):
+                    if editar_categoria_db(ed_cat, novo_n):
+                        st.success(f"Categoria e registros antigos atualizados para: {novo_n}")
+                        st.rerun()
     with c3:
         st.subheader("🗑️ Remover Categoria")
         rm_cat = st.selectbox("Excluir Categoria", ["Selecione..."] + cats)
