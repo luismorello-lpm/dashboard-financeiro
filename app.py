@@ -275,40 +275,32 @@ def pagina_gerenciar():
             
             with col1:
                 nova_data = st.text_input("Data (DD/MM/AAAA)", value=str(dados_atuais['Data']))
-                
                 opcoes_tipo = ['Despesa', 'Receita', 'Sobra']
                 try: idx_tipo = opcoes_tipo.index(dados_atuais['Tipo'])
                 except: idx_tipo = 0
                 novo_tipo = st.selectbox("Tipo", opcoes_tipo, index=idx_tipo)
-                
                 novo_valor = st.number_input("Valor (R$)", value=float(dados_atuais['Valor']), format="%.2f")
             
             with col2:
                 nova_desc = st.text_input("Descrição", value=str(dados_atuais['Descrição']))
-                
                 cats = carregar_categorias()
                 try: cat_idx = cats.index(dados_atuais['Categoria'])
                 except: cat_idx = 0
                 nova_cat = st.selectbox("Categoria", cats, index=cat_idx)
-                
-                # --- MUDANÇA: CLASSIFICAÇÃO AGORA É SELECTBOX ---
                 try: idx_class = CLASSIFICACOES_PADRAO.index(dados_atuais['Classificação'])
                 except: idx_class = 0
                 nova_class = st.selectbox("Classificação", CLASSIFICACOES_PADRAO, index=idx_class)
 
             with col3:
-                # --- MUDANÇA: FORMA DE PAGAMENTO AGORA É SELECTBOX ---
                 try: idx_forma = MEIOS_PAGAMENTO_PADRAO.index(dados_atuais['Forma de Pagamento'])
                 except: idx_forma = 0
                 nova_forma = st.selectbox("Forma/Método de Pagamento", MEIOS_PAGAMENTO_PADRAO, index=idx_forma)
-                
                 status_atual = str(dados_atuais['Pagamento Realizado']).upper()
                 idx_status = 0
                 if status_atual == 'OK': idx_status = 0
                 elif status_atual == 'NOK': idx_status = 1
                 else: idx_status = 2
                 novo_pago = st.selectbox("Pagamento Realizado", ['OK', 'NOK', 'N/A'], index=idx_status)
-                
                 novas_parc = st.text_input("Parcelas", value=str(dados_atuais['Parcelas']))
 
             novas_obs = st.text_area("Observações", value=str(dados_atuais['Observações']))
@@ -323,16 +315,23 @@ def pagina_gerenciar():
             btn_salvar = st.form_submit_button("💾 Salvar Alterações")
             
         st.markdown("---")
+        # --- LÓGICA DE EXCLUSÃO COM RENUMERAÇÃO AUTOMÁTICA ---
         if st.button("🗑️ Excluir este lançamento permanentemente"):
-            df = df.drop(idx_alvo).copy()
+            # Remove a linha selecionada
+            df = df.drop(idx_alvo).reset_index(drop=True)
+            
+            # REORGANIZA OS IDs: Cria uma nova sequência de 1 até o fim do DataFrame
+            if not df.empty:
+                df['ID'] = range(1, len(df) + 1)
+            
             if salvar_dados(df):
-                st.success(f"Lançamento {id_input} removido!")
+                st.success(f"Lançamento removido! Todos os IDs subsequentes foram reorganizados para manter a sequência.")
                 st.rerun()
 
         if btn_salvar:
             df.at[idx_alvo, 'Data'] = nova_data
             df.at[idx_alvo, 'Tipo'] = novo_tipo
-            df.at[idx_alvo, 'Valor'] = novo_valor
+            df.at[idx_alvo, 'Valor'] = nova_valor
             df.at[idx_alvo, 'Descrição'] = nova_desc
             df.at[idx_alvo, 'Categoria'] = nova_cat
             df.at[idx_alvo, 'Classificação'] = nova_class
