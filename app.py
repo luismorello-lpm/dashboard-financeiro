@@ -216,7 +216,7 @@ def pagina_adicionar():
         c1, c2, c3 = st.columns(3)
         data_l = c1.date_input("Data do Lançamento", datetime.now())
         tipo = c2.selectbox("Tipo", ['Despesa', 'Receita', 'Sobra'])
-        valor = c3.number_input("Valor (R$)", min_value=0.01, format="%.2f")
+        valor = c3.number_input("Valor Total (R$)", min_value=0.01, format="%.2f")
         desc = st.text_input("Descrição")
         cat = st.selectbox("Categoria", cats)
 
@@ -228,30 +228,48 @@ def pagina_adicionar():
         pago = c2.selectbox("Já foi pago?", ['Sim', 'Não'])
         obs = st.text_area("Observações", "-")
 
-        st.subheader("Mês/Ano Contábil")
-        c1, c2 = st.columns(2)
-        m_cont = c1.number_input("Mês Contábil", 1, 12, datetime.now().month)
-        a_cont = c2.number_input("Ano Contábil", 2020, 2030, datetime.now().year)
-        
-        if forma == 'Parcelado':
-            st.subheader("Detalhes do Parcelamento")
-            cp1, cp2, cp3 = st.columns(3)
-            n_parc = cp1.number_input("Total Parcelas", 2, 60, 2)
-            m_ini = cp2.number_input("Mês da 1ª parcela", 1, 12, m_cont)
-            a_ini = cp3.number_input("Ano da 1ª parcela", 2020, 2030, a_cont)
+        st.markdown("---")
+        st.subheader("Configuração de Parcelas / Mês Contábil")
+        cp1, cp2, cp3 = st.columns(3)
+        n_parc = cp1.number_input("Número de parcelas (Se parcelado)", min_value=1, value=1, step=1)
+        m_cont = cp2.number_input("Mês Inicial / Contábil", 1, 12, datetime.now().month)
+        a_cont = cp3.number_input("Ano Inicial / Contábil", 2020, 2030, datetime.now().year)
 
-        if st.form_submit_button("Adicionar Lançamento"):
-            novos = []
+        submitted = st.form_submit_button("Adicionar Lançamento")
+
+        if submitted:
+            novos_lancamentos = []
             pago_str = 'OK' if pago == 'Sim' else 'NOK'
-            if tipo != 'Despesa' or forma == 'À Vista':
-                novos.append({'ID': proximo_id, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 'Descrição': desc, 'Valor': valor, 'Categoria': cat, 'Classificação': classif if tipo=='Despesa' else 'N/A', 'Pagamento': forma if tipo=='Despesa' else 'N/A', 'Forma de Pagamento': metodo if tipo=='Despesa' else 'N/A', 'Parcelas': 'N/A', 'Pagamento Realizado': pago_str, 'Observações': obs, 'Mês': MAPA_MESES[m_cont], 'Ano': a_cont})
-            else:
-                for i in range(n_parc):
-                    m, a = m_ini + i, a_ini
-                    while m > 12: m -= 12; a += 1
-                    novos.append({'ID': proximo_id+i, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 'Descrição': f"{desc} ({i+1}/{n_parc})", 'Valor': valor/n_parc, 'Categoria': cat, 'Classificação': classif, 'Pagamento': forma, 'Forma de Pagamento': metodo, 'Parcelas': f"{i+1:02d} de {n_parc:02d}", 'Pagamento Realizado': pago_str, 'Observações': obs, 'Mês': MAPA_MESES[m], 'Ano': a})
             
-            df_final = pd.concat([df_existente, pd.DataFrame(novos)], ignore_index=True)
+            if tipo != 'Despesa' or forma == 'À Vista':
+                novo = {
+                    'ID': proximo_id, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 
+                    'Descrição': desc, 'Valor': valor, 'Categoria': cat, 
+                    'Classificação': classif if tipo == 'Despesa' else 'N/A', 
+                    'Pagamento': forma if tipo == 'Despesa' else 'N/A', 
+                    'Forma de Pagamento': metodo if tipo == 'Despesa' else 'N/A', 
+                    'Parcelas': 'N/A', 'Pagamento Realizado': pago_str, 
+                    'Observações': obs, 'Mês': MAPA_MESES[m_cont], 'Ano': a_cont
+                }
+                novos_lancamentos.append(novo)
+            else:
+                valor_parcela = valor / n_parc
+                for i in range(n_parc):
+                    m_atual = m_cont + i
+                    a_atual = a_cont
+                    while m_atual > 12:
+                        m_atual -= 12
+                        a_atual += 1
+                    novo = {
+                        'ID': proximo_id + i, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 
+                        'Descrição': f"{desc} ({i+1}/{n_parc})", 'Valor': valor_parcela, 'Categoria': cat, 
+                        'Classificação': classif, 'Pagamento': forma, 'Forma de Pagamento': metodo, 
+                        'Parcelas': f"{i+1:02d} de {n_parc:02d}", 'Pagamento Realizado': pago_str, 
+                        'Observações': obs, 'Mês': MAPA_MESES[m_atual], 'Ano': a_atual
+                    }
+                    novos_lancamentos.append(novo)
+            
+            df_final = pd.concat([df_existente, pd.DataFrame(novos_lancamentos)], ignore_index=True)
             if salvar_dados(df_final): st.success("Adicionado!"); st.rerun()
 
 def pagina_gerenciar():
@@ -315,23 +333,17 @@ def pagina_gerenciar():
             btn_salvar = st.form_submit_button("💾 Salvar Alterações")
             
         st.markdown("---")
-        # --- LÓGICA DE EXCLUSÃO COM RENUMERAÇÃO AUTOMÁTICA ---
         if st.button("🗑️ Excluir este lançamento permanentemente"):
-            # Remove a linha selecionada
             df = df.drop(idx_alvo).reset_index(drop=True)
-            
-            # REORGANIZA OS IDs: Cria uma nova sequência de 1 até o fim do DataFrame
             if not df.empty:
                 df['ID'] = range(1, len(df) + 1)
-            
             if salvar_dados(df):
-                st.success(f"Lançamento removido! Todos os IDs subsequentes foram reorganizados para manter a sequência.")
-                st.rerun()
+                st.success("Removido e IDs reorganizados!"); st.rerun()
 
         if btn_salvar:
             df.at[idx_alvo, 'Data'] = nova_data
             df.at[idx_alvo, 'Tipo'] = novo_tipo
-            df.at[idx_alvo, 'Valor'] = nova_valor
+            df.at[idx_alvo, 'Valor'] = novo_valor
             df.at[idx_alvo, 'Descrição'] = nova_desc
             df.at[idx_alvo, 'Categoria'] = nova_cat
             df.at[idx_alvo, 'Classificação'] = nova_class
