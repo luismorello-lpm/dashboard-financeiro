@@ -349,16 +349,16 @@ def pagina_graficos():
                 fig = px.line(res, x='Mês', y='Valor', color='Forma de Pagamento', markers=True, title="Evolução das Faturas")
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- MENU COM ÍCONES RESTAURADOS ---
+# --- MENU COM ÍCONE APENAS NO TÍTULO ---
 st.sidebar.title("🏛️ Menu Principal")
 paginas = {
-    "🏠 Página Inicial": pagina_inicial,
-    "✍️ Adicionar Lançamento": pagina_adicionar,
-    "🛠️ Gerenciar Lançamento": pagina_gerenciar,
-    "📊 Relatório Mensal": pagina_relatorio,
-    "💳 Ver Faturas de Cartão": pagina_faturas,
-    "⚙️ Configurações de Categoria": pagina_configuracoes,
-    "🎨 Gráficos Analíticos": pagina_graficos
+    "Página Inicial": pagina_inicial,
+    "Adicionar Lançamento": pagina_adicionar,
+    "Gerenciar Lançamento": pagina_gerenciar,
+    "Relatório Mensal": pagina_relatorio,
+    "Ver Faturas de Cartão": pagina_faturas,
+    "Configurações de Categoria": pagina_configuracoes,
+    "Gráficos Analíticos": pagina_graficos
 }
 escolha = st.sidebar.radio("Navegue pelas páginas", list(paginas.keys()))
 paginas[escolha]()
