@@ -86,7 +86,7 @@ def salvar_dados(df):
         except: return False
     return False
 
-# --- FUNÇÕES DE CATEGORIA (RESTAURADAS E MELHORADAS) ---
+# --- GESTÃO DE CATEGORIAS ---
 @st.cache_data(ttl=60)
 def carregar_categorias():
     client = connect_to_gsheet()
@@ -142,14 +142,14 @@ def editar_categoria_db(nome_antigo, nome_novo):
         except: return False
     return False
 
-# --- PÁGINAS (RESTAURANDO O VISUAL DAS IMAGENS) ---
+# --- PÁGINAS ---
 
 def pagina_inicial():
     st.title("🏠 Página Inicial")
     st.subheader("Resumo do Mês Corrente")
     df = carregar_dados()
     if df.empty:
-        st.warning("Base vazia.")
+        st.warning("Base de dados vazia.")
         return
 
     df['Valor Fin.'] = np.where(df['Tipo'] == 'Despesa', -df['Valor'], df['Valor'])
@@ -246,7 +246,7 @@ def pagina_adicionar():
                     novos.append({'ID': proximo_id+i, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 'Descrição': f"{desc} ({i+1}/{n_parc})", 'Valor': valor/n_parc, 'Categoria': cat, 'Classificação': classif, 'Pagamento': forma, 'Forma de Pagamento': metodo, 'Parcelas': f"{i+1:02d} de {n_parc:02d}", 'Pagamento Realizado': pago_str, 'Observações': obs, 'Mês': MAPA_MESES[m], 'Ano': a})
             
             df_final = pd.concat([df_existente, pd.DataFrame(novos)], ignore_index=True)
-            if salvar_dados(df_final): st.success("Sucesso!"); st.rerun()
+            if salvar_dados(df_final): st.success("Lançamento adicionado com sucesso!"); st.rerun()
 
 def pagina_gerenciar():
     st.title("🛠️ Gerenciar Lançamento")
@@ -256,9 +256,9 @@ def pagina_gerenciar():
         res = df[df['ID'] == id_input]
         if not res.empty:
             st.dataframe(res, hide_index=True)
-            if st.button("Excluir"):
+            if st.button("Confirmar Exclusão"):
                 df = df[df['ID'] != id_input]
-                if salvar_dados(df): st.success("Excluído!"); st.rerun()
+                if salvar_dados(df): st.success("Lançamento excluído!"); st.rerun()
         else: st.error("ID não encontrado.")
 
 def pagina_relatorio():
@@ -271,7 +271,7 @@ def pagina_relatorio():
         df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])]
         if not df_r.empty:
             st.dataframe(df_r, hide_index=True)
-        else: st.warning("Sem dados.")
+        else: st.warning("Nenhum dado encontrado para este período.")
 
 def pagina_faturas():
     st.title("💳 Ver Faturas de Cartão de Crédito")
@@ -283,41 +283,108 @@ def pagina_faturas():
         df = carregar_dados()
         df_f = df[(df['Forma de Pagamento'] == cartao) & (df['Mês'] == MAPA_MESES[mes]) & (df['Ano'] == ano)]
         if not df_f.empty:
-            st.metric("Total", f"R$ {df_f['Valor'].sum():,.2f}")
+            st.metric(f"Total {cartao}", f"R$ {df_f['Valor'].sum():,.2f}")
             st.dataframe(df_f, hide_index=True)
-        else: st.info("Fatura vazia.")
+        else: st.info("Nenhum lançamento encontrado para esta fatura.")
 
 def pagina_configuracoes():
-    st.title("⚙️ Configurações de Categorias")
+    st.title("⚙️ Configurações de Categoria")
     cats = carregar_categorias()
     c1, c2, c3 = st.columns(3)
     with c1:
         st.subheader("✨ Nova Categoria")
-        n_cat = st.text_input("Nome")
+        n_cat = st.text_input("Nome da Categoria", key="new_cat")
         if st.button("Adicionar"):
             if n_cat and n_cat not in cats:
-                if salvar_categoria_db(n_cat): st.success("Ok!"); st.rerun()
+                if salvar_categoria_db(n_cat): st.success("Categoria adicionada!"); st.rerun()
     with c2:
         st.subheader("📝 Editar Categoria")
-        ed_cat = st.selectbox("Atual", ["Selecione..."] + cats)
+        ed_cat = st.selectbox("Selecionar Categoria", ["Selecione..."] + cats, key="sel_ed")
         novo_n = st.text_input("Novo Nome")
-        if st.button("Atualizar"):
+        if st.button("Atualizar Categoria e Registros"):
             if ed_cat != "Selecione..." and novo_n:
-                with st.spinner("Processando..."):
-                    if editar_categoria_db(ed_cat, novo_n): st.success("Atualizado!"); st.rerun()
+                with st.spinner("Atualizando base de dados..."):
+                    if editar_categoria_db(ed_cat, novo_n): st.success("Tudo atualizado!"); st.rerun()
     with c3:
         st.subheader("🗑️ Remover Categoria")
-        rm_cat = st.selectbox("Remover", ["Selecione..."] + cats)
+        rm_cat = st.selectbox("Selecionar para remover", ["Selecione..."] + cats, key="sel_rm")
         if st.button("Remover"):
-            if rm_cat != "Selecione..." and excluir_categoria_db(rm_cat): st.success("Removida!"); st.rerun()
+            if rm_cat != "Selecione..." and excluir_categoria_db(rm_cat): st.success("Categoria removida!"); st.rerun()
 
 def pagina_graficos():
     st.title("🎨 Gerador de Gráficos Analíticos")
-    escolha = st.selectbox("Escolha o Gráfico", ["Selecione um tipo de gráfico...", "Gastos por Categoria (Mensal)", "Gasto com Cartão de Crédito (Mensal)", "Gastos por Classificação (Mensal)", "Gastos por Categoria (Anual)", "Balanço Receitas x Despesas (Anual)", "Faturas de Cartão de Crédito (Anual)"])
-    if escolha != "Selecione um tipo de gráfico...":
-        df = carregar_dados()
-        # Aqui você pode adicionar as lógicas de plotagem para cada tipo conforme necessário
-        st.info(f"Gerando gráfico: {escolha}")
+    df = carregar_dados()
+    if df.empty:
+        st.warning("Nenhum dado para gerar gráficos.")
+        return
+
+    opcoes_graficos = {
+        "Selecione um tipo de gráfico...": "nenhum",
+        "Gastos por Categoria (Mensal)": "cat_mensal",
+        "Gasto com Cartão de Crédito (Mensal)": "cc_mensal",
+        "Gastos por Classificação (Mensal)": "class_mensal",
+        "Gastos por Categoria (Anual)": "cat_anual",
+        "Balanço Receitas x Despesas (Anual)": "balanco_anual",
+        "Faturas de Cartão de Crédito (Anual)": "faturas_anual"
+    }
+    
+    escolha_grafico = st.selectbox("Escolha o Gráfico", list(opcoes_graficos.keys()))
+    tipo_grafico = opcoes_graficos[escolha_grafico]
+
+    if tipo_grafico == "nenhum":
+        st.info("Escolha uma opção acima para configurar o gráfico.")
+        return
+
+    # Gráficos Mensais
+    if tipo_grafico.endswith("_mensal"):
+        c1, c2 = st.columns(2)
+        ano_g = c1.number_input("Ano", 2020, 2030, datetime.now().year)
+        mes_g = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
+        
+        if st.button("Gerar Gráfico"):
+            df_m = df[(df['Ano'] == ano_g) & (df['Mês'] == MAPA_MESES[mes_g])]
+            if df_m.empty: st.error("Sem dados."); return
+            
+            if tipo_grafico == 'cat_mensal':
+                res = df_m[df_m['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum()
+                fig, ax = plt.subplots()
+                ax.pie(res, labels=res.index, autopct='%1.1f%%', startangle=90)
+                st.pyplot(fig)
+            elif tipo_grafico == 'cc_mensal':
+                cart = ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG']
+                res = df_m[df_m['Forma de Pagamento'].isin(cart)].groupby('Forma de Pagamento')['Valor'].sum()
+                fig, ax = plt.subplots()
+                res.plot(kind='bar', color=['purple', 'red', 'blue'], ax=ax)
+                st.pyplot(fig)
+            elif tipo_grafico == 'class_mensal':
+                res = df_m[df_m['Tipo'] == 'Despesa'].groupby('Classificação')['Valor'].sum()
+                fig, ax = plt.subplots()
+                ax.pie(res, labels=res.index, autopct='%1.1f%%')
+                st.pyplot(fig)
+
+    # Gráficos Anuais
+    elif tipo_grafico.endswith("_anual"):
+        ano_a = st.number_input("Ano", 2020, 2030, datetime.now().year, key="a_anual")
+        if st.button("Gerar Gráfico"):
+            df_a = df[df['Ano'] == ano_a]
+            if df_a.empty: st.error("Sem dados."); return
+
+            if tipo_grafico == 'cat_anual':
+                res = df_a[df_a['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum()
+                fig, ax = plt.subplots()
+                ax.pie(res, labels=res.index, autopct='%1.1f%%')
+                st.pyplot(fig)
+            elif tipo_grafico == 'balanco_anual':
+                bal = df_a.groupby(['Mês', 'Tipo'])['Valor'].sum().unstack().fillna(0)
+                fig, ax = plt.subplots(figsize=(10, 5))
+                bal.plot(kind='bar', stacked=True, ax=ax, color={'Receita': 'green', 'Despesa': 'red', 'Sobra': 'blue'})
+                st.pyplot(fig)
+            elif tipo_grafico == 'faturas_anual':
+                cart = ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG']
+                res = df_a[df_a['Forma de Pagamento'].isin(cart)].groupby(['Mês', 'Forma de Pagamento'])['Valor'].sum().unstack().fillna(0)
+                fig, ax = plt.subplots(figsize=(10, 5))
+                res.plot(kind='bar', stacked=True, ax=ax)
+                st.pyplot(fig)
 
 # --- MENU LATERAL ---
 st.sidebar.title("🏛️ Menu Principal")
@@ -327,7 +394,7 @@ paginas = {
     "Gerenciar Lançamento": pagina_gerenciar,
     "Relatório Mensal": pagina_relatorio,
     "Ver Faturas de Cartão": pagina_faturas,
-    "Configurações": pagina_configuracoes,
+    "Configurações de Categoria": pagina_configuracoes,
     "Gráficos Analíticos": pagina_graficos
 }
 escolha = st.sidebar.radio("Navegue pelas páginas", list(paginas.keys()))
