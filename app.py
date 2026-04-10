@@ -15,19 +15,23 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- LÓGICA DE NAVEGAÇÃO VIA URL (QUERY PARAMS) ---
-# Se houver um ID na URL, setamos a página para 'Gerenciar Lançamento'
+# URL Base do seu App
+BASE_URL = "https://dashboardfinanceiro-lpm.streamlit.app/"
+
+# --- LÓGICA DE NAVEGAÇÃO VIA URL ---
 query_params = st.query_params
 if "editar_id" in query_params:
     st.session_state.pagina_atual = "Gerenciar Lançamento"
-    st.session_state.id_para_editar = int(query_params["editar_id"])
+    st.session_state.id_para_gerenciar = int(query_params["editar_id"])
+    st.session_state.acao_gerenciar = "editar"
+elif "excluir_id" in query_params:
+    st.session_state.pagina_atual = "Gerenciar Lançamento"
+    st.session_state.id_para_gerenciar = int(query_params["excluir_id"])
+    st.session_state.acao_gerenciar = "excluir"
 
 # --- CONFIGURAÇÃO DA CONEXÃO ---
 NOME_DA_PLANILHA = "DashboardFinanceiroDB"
-SCOPES = [
-    'https://www.googleapis.com/auth/spreadsheets',
-    'https://www.googleapis.com/auth/drive'
-]
+SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 
 @st.cache_resource
 def connect_to_gsheet():
@@ -36,21 +40,18 @@ def connect_to_gsheet():
         client = gspread.authorize(creds)
         return client
     except Exception as e:
-        st.error(f"Erro ao conectar com o Google Sheets: {e}")
+        st.error(f"Erro ao conectar: {e}")
         return None
 
 # --- FUNÇÕES AUXILIARES ---
-MAPA_MESES = {
-    1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 
-    7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'
-}
+MAPA_MESES = {1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril', 5: 'Maio', 6: 'Junho', 
+              7: 'Julho', 8: 'Agosto', 9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'}
 MESES_ORDENADOS = list(MAPA_MESES.values())
 
 def clean_valor(valor_str):
     s = str(valor_str).strip().replace('R$', '').replace(' ', '')
     if not s: return np.nan
-    last_comma = s.rfind(',')
-    last_dot = s.rfind('.')
+    last_comma, last_dot = s.rfind(','), s.rfind('.')
     if last_comma > last_dot: s = s.replace('.', '').replace(',', '.')
     elif last_dot > last_comma: s = s.replace(',', '')
     elif last_comma != -1 and last_dot == -1: s = s.replace(',', '.')
@@ -61,9 +62,8 @@ def carregar_dados():
     client = connect_to_gsheet()
     if client:
         try:
-            spreadsheet = client.open(NOME_DA_PLANILHA)
-            worksheet = spreadsheet.sheet1
-            data = worksheet.get_all_values()
+            ws = client.open(NOME_DA_PLANILHA).sheet1
+            data = ws.get_all_values()
             if not data or len(data) < 2: return pd.DataFrame()
             df = pd.DataFrame(data[1:], columns=[h.strip() for h in data[0]])
             for col in ['ID', 'Ano', 'Valor']:
@@ -81,14 +81,13 @@ def salvar_dados(df):
     client = connect_to_gsheet()
     if client:
         try:
-            spreadsheet = client.open(NOME_DA_PLANILHA)
-            worksheet = spreadsheet.sheet1
-            df_para_salvar = df.copy()
-            if 'Valor' in df_para_salvar.columns:
-                 df_para_salvar['Valor'] = df_para_salvar['Valor'].apply(lambda x: f"{x:.2f}".replace('.', ',') if pd.notna(x) else '')
-            for col in df_para_salvar.columns: df_para_salvar[col] = df_para_salvar[col].astype(str)
-            worksheet.clear()
-            set_with_dataframe(worksheet, df_para_salvar, include_index=False, include_column_header=True, resize=True)
+            ws = client.open(NOME_DA_PLANILHA).sheet1
+            df_salvar = df.copy()
+            if 'Valor' in df_salvar.columns:
+                 df_salvar['Valor'] = df_salvar['Valor'].apply(lambda x: f"{x:.2f}".replace('.', ',') if pd.notna(x) else '')
+            for col in df_salvar.columns: df_salvar[col] = df_salvar[col].astype(str)
+            ws.clear()
+            set_with_dataframe(ws, df_salvar, include_index=False, include_column_header=True, resize=True)
             st.cache_data.clear()
             return True
         except: return False
@@ -100,38 +99,24 @@ def carregar_categorias():
     client = connect_to_gsheet()
     if client:
         try:
-            spreadsheet = client.open(NOME_DA_PLANILHA)
-            ws = spreadsheet.worksheet("Categorias")
+            ws = client.open(NOME_DA_PLANILHA).worksheet("Categorias")
             lista = ws.col_values(1)[1:]
             return sorted([c for c in lista if c]) if lista else ["Geral"]
         except: return ["Entrada", "Transporte", "Saúde", "Moradia"]
     return []
 
-def salvar_categoria_db(nova_cat):
-    client = connect_to_gsheet()
-    if client:
-        try:
-            ws = client.open(NOME_DA_PLANILHA).worksheet("Categorias")
-            ws.append_row([nova_cat])
-            st.cache_data.clear()
-            return True
-        except: return False
-    return False
-
 def excluir_categoria_db(cat_nome, cat_substituta):
     client = connect_to_gsheet()
     if client:
         try:
-            spreadsheet = client.open(NOME_DA_PLANILHA)
-            ws_dados = spreadsheet.sheet1
-            dados = ws_dados.get_all_values()
-            df_temp = pd.DataFrame(dados[1:], columns=dados[0])
+            ss = client.open(NOME_DA_PLANILHA)
+            df_temp = carregar_dados()
             if 'Categoria' in df_temp.columns:
                 df_temp['Categoria'] = df_temp['Categoria'].replace(cat_nome, cat_substituta)
                 salvar_dados(df_temp)
-            ws_cat = spreadsheet.worksheet("Categorias")
-            celula = ws_cat.find(cat_nome)
-            if celula: ws_cat.delete_rows(celula.row)
+            ws_cat = ss.worksheet("Categorias")
+            cel = ws_cat.find(cat_nome)
+            if cel: ws_cat.delete_rows(cel.row)
             st.cache_data.clear()
             return True
         except: return False
@@ -141,13 +126,11 @@ def editar_categoria_db(nome_antigo, nome_novo):
     client = connect_to_gsheet()
     if client:
         try:
-            spreadsheet = client.open(NOME_DA_PLANILHA)
-            ws_cat = spreadsheet.worksheet("Categorias")
-            celula = ws_cat.find(nome_antigo)
-            if celula: ws_cat.update_cell(celula.row, celula.col, nome_novo)
-            ws_dados = spreadsheet.sheet1
-            dados = ws_dados.get_all_values()
-            df_temp = pd.DataFrame(dados[1:], columns=dados[0])
+            ss = client.open(NOME_DA_PLANILHA)
+            ws_cat = ss.worksheet("Categorias")
+            cel = ws_cat.find(nome_antigo)
+            if cel: ws_cat.update_cell(cel.row, cel.col, nome_novo)
+            df_temp = carregar_dados()
             if 'Categoria' in df_temp.columns:
                 df_temp['Categoria'] = df_temp['Categoria'].replace(nome_antigo, nome_novo)
                 salvar_dados(df_temp)
@@ -161,252 +144,131 @@ def pagina_inicial():
     st.title("🏠 Página Inicial")
     st.subheader("Resumo do Mês Corrente")
     df = carregar_dados()
-    if df.empty:
-        st.warning("Base de dados vazia.")
-        return
-
-    df['Valor Fin.'] = np.where(df['Tipo'] == 'Despesa', -df['Valor'], df['Valor'])
+    if df.empty: return
+    df['V_Fin'] = np.where(df['Tipo'] == 'Despesa', -df['Valor'], df['Valor'])
     hoje = datetime.now()
-    mes_atual_nome = MAPA_MESES[hoje.month]
-    df_mes = df[(df['Ano'] == hoje.year) & (df['Mês'] == mes_atual_nome)]
-
+    df_mes = df[(df['Ano'] == hoje.year) & (df['Mês'] == MAPA_MESES[hoje.month])]
     if not df_mes.empty:
-        receitas = df_mes[df_mes['Valor Fin.'] > 0]['Valor Fin.'].sum()
-        despesas = df_mes[df_mes['Valor Fin.'] < 0]['Valor Fin.'].sum()
-        saldo = receitas + despesas
-
+        rec, desp = df_mes[df_mes['V_Fin']>0]['V_Fin'].sum(), df_mes[df_mes['V_Fin']<0]['V_Fin'].sum()
         c1, c2, c3 = st.columns(3)
-        c1.metric("🟢 Receitas Totais", f"R$ {receitas:,.2f}")
-        c2.metric("🔴 Despesas Totais", f"R$ {despesas:,.2f}")
-        c3.metric("💰 Saldo do Mês", f"R$ {saldo:,.2f}")
-
+        c1.metric("🟢 Receitas", f"R$ {rec:,.2f}"); c2.metric("🔴 Despesas", f"R$ {desp:,.2f}"); c3.metric("💰 Saldo", f"R$ {rec+desp:,.2f}")
     st.markdown("---")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.subheader("Últimos 5 Lançamentos do Mês")
-        st.dataframe(df_mes.tail(5), hide_index=True)
-    with col2:
-        st.subheader("Faturas do Próximo Mês")
-        prox_mes_num = hoje.month + 1 if hoje.month < 12 else 1
-        prox_ano = hoje.year if hoje.month < 12 else hoje.year + 1
-        cartoes = ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG']
-        df_fat = df[(df['Forma de Pagamento'].isin(cartoes)) & (df['Ano'] == prox_ano) & (df['Mês'] == MAPA_MESES[prox_mes_num])]
-        if not df_fat.empty:
-            res_fat = df_fat.groupby('Forma de Pagamento')['Valor'].sum().reset_index()
-            st.dataframe(res_fat, hide_index=True)
-        else: st.info("Sem faturas.")
-
-    st.markdown("---")
-    st.subheader("Distribuição de Despesas do Mês")
-    despesas_df = df_mes[df_mes['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum().reset_index()
-    if not despesas_df.empty:
-        fig = px.pie(despesas_df, values='Valor', names='Categoria', hole=0.4,
-                     color_discrete_sequence=px.colors.qualitative.Pastel)
-        fig.update_traces(textposition='inside', textinfo='percent+label')
+    desp_df = df_mes[df_mes['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum().reset_index()
+    if not desp_df.empty:
+        fig = px.pie(desp_df, values='Valor', names='Categoria', hole=0.4, color_discrete_sequence=px.colors.qualitative.Pastel)
         st.plotly_chart(fig, use_container_width=True)
 
 def pagina_adicionar():
     st.title("✍️ Adicionar Novo Lançamento")
-    df_existente = carregar_dados()
+    df = carregar_dados()
     cats = carregar_categorias()
-    proximo_id = int(df_existente['ID'].max() + 1) if not df_existente.empty else 1
-
-    with st.form("novo_lancamento_form"):
-        st.subheader("Detalhes do Lançamento")
+    proximo_id = int(df['ID'].max() + 1) if not df.empty else 1
+    with st.form("add_form"):
         c1, c2, c3 = st.columns(3)
-        data_l = c1.date_input("Data do Lançamento", datetime.now())
+        data = c1.date_input("Data", datetime.now())
         tipo = c2.selectbox("Tipo", ['Despesa', 'Receita', 'Sobra'])
-        valor = c3.number_input("Valor (R$)", min_value=0.01, format="%.2f")
-        desc = st.text_input("Descrição")
-        cat = st.selectbox("Categoria", cats)
-
-        st.subheader("Detalhes da Despesa")
-        c1, c2 = st.columns(2)
-        classif = c1.selectbox("Classificação", ['Essencial', 'Não Essencial', 'Extra'])
-        metodo = c2.selectbox("Método de Pagamento", ['Vale Alimentação', 'Débito Nubank', 'Débito Santander', 'Crédito Nubank', 'Crédito Santander', 'Boleto', 'Crédito BTG', 'Dinheiro', 'Pix'])
-        forma = c1.selectbox("Forma de Pagamento", ['À Vista', 'Parcelado'])
-        pago = c2.selectbox("Já foi pago?", ['Sim', 'Não'])
-        obs = st.text_area("Observações", "-")
-
-        st.subheader("Mês/Ano Contábil")
-        c1, c2 = st.columns(2)
-        m_cont = c1.number_input("Mês Contábil", 1, 12, datetime.now().month)
-        a_cont = c2.number_input("Ano Contábil", 2020, 2030, datetime.now().year)
-        
-        if forma == 'Parcelado':
-            st.subheader("Detalhes do Parcelamento")
-            cp1, cp2, cp3 = st.columns(3)
-            n_parc = cp1.number_input("Total Parcelas", 2, 60, 2)
-            m_ini = cp2.number_input("Mês da 1ª", 1, 12, m_cont)
-            a_ini = cp3.number_input("Ano da 1ª", 2020, 2030, a_cont)
-
-        if st.form_submit_button("Adicionar Lançamento"):
-            novos = []
-            pago_str = 'OK' if pago == 'Sim' else 'NOK'
-            if tipo != 'Despesa' or forma == 'À Vista':
-                novos.append({'ID': proximo_id, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 'Descrição': desc, 'Valor': valor, 'Categoria': cat, 'Classificação': classif if tipo=='Despesa' else 'N/A', 'Pagamento': forma if tipo=='Despesa' else 'N/A', 'Forma de Pagamento': metodo if tipo=='Despesa' else 'N/A', 'Parcelas': 'N/A', 'Pagamento Realizado': pago_str, 'Observações': obs, 'Mês': MAPA_MESES[m_cont], 'Ano': a_cont})
-            else:
-                for i in range(n_parc):
-                    m, a = m_ini + i, a_ini
-                    while m > 12: m -= 12; a += 1
-                    novos.append({'ID': proximo_id+i, 'Data': data_l.strftime('%d/%m/%Y'), 'Tipo': tipo, 'Descrição': f"{desc} ({i+1}/{n_parc})", 'Valor': valor/n_parc, 'Categoria': cat, 'Classificação': classif, 'Pagamento': forma, 'Forma de Pagamento': metodo, 'Parcelas': f"{i+1:02d} de {n_parc:02d}", 'Pagamento Realizado': pago_str, 'Observações': obs, 'Mês': MAPA_MESES[m], 'Ano': a})
-            
-            df_final = pd.concat([df_existente, pd.DataFrame(novos)], ignore_index=True)
-            if salvar_dados(df_final): st.success("Adicionado!"); st.rerun()
+        valor = c3.number_input("Valor", 0.01, format="%.2f")
+        desc, cat = st.text_input("Descrição"), st.selectbox("Categoria", cats)
+        if st.form_submit_button("Salvar"):
+            novo = [{'ID': proximo_id, 'Data': data.strftime('%d/%m/%Y'), 'Tipo': tipo, 'Descrição': desc, 'Valor': valor, 'Categoria': cat, 'Mês': MAPA_MESES[data.month], 'Ano': data.year}]
+            if salvar_dados(pd.concat([df, pd.DataFrame(novo)], ignore_index=True)): st.success("Salvo!"); st.rerun()
 
 def pagina_gerenciar():
     st.title("🛠️ Gerenciar Lançamento")
     df = carregar_dados()
     
-    # Se houver um ID pendente da URL, usamos ele. Se não, limpamos.
-    if "id_para_editar" in st.session_state:
-        id_default = st.session_state.id_para_editar
-        # Removemos para que o usuário possa trocar depois sem ficar "preso"
-        del st.session_state.id_para_editar
-        # Limpamos a URL também para não ficar voltando ao recarregar
-        st.query_params.clear()
-    else:
-        id_default = 1
+    # Recupera o que foi pedido via URL
+    id_alvo = st.session_state.get('id_para_gerenciar', 1)
+    acao = st.session_state.get('acao_gerenciar', 'buscar')
     
-    id_input = st.number_input("ID do lançamento", min_value=1, value=int(id_default), key="id_gerenciar_input")
+    id_input = st.number_input("ID do lançamento", min_value=1, value=int(id_alvo))
     
-    if st.button("Buscar"):
-        res = df[df['ID'] == id_input]
-        if not res.empty:
-            st.dataframe(res, hide_index=True)
-            if st.button("Excluir"):
+    res = df[df['ID'] == id_input]
+    if not res.empty:
+        st.dataframe(res, hide_index=True)
+        
+        if acao == "excluir":
+            st.warning(f"⚠️ Você solicitou a exclusão do ID {id_input}. Confirma?")
+            if st.button("🔴 Confirmar Exclusão Definitiva"):
+                df = df[df['ID'] != id_input]
+                if salvar_dados(df): 
+                    st.success("Excluído com sucesso!")
+                    st.query_params.clear()
+                    st.rerun()
+        else:
+            if st.button("🗑️ Excluir Registro"):
                 df = df[df['ID'] != id_input]
                 if salvar_dados(df): st.success("Excluído!"); st.rerun()
-        else: st.error("ID não encontrado.")
+    else: st.error("ID não encontrado.")
 
 def pagina_relatorio():
     st.title("📊 Gerador de Relatório Financeiro")
     c1, c2 = st.columns(2)
-    ano = c1.number_input("Ano", 2020, 2030, datetime.now().year)
-    mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
+    ano, mes = c1.number_input("Ano", 2020, 2030, datetime.now().year), c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
     
     if st.button("Gerar Relatório"):
         df = carregar_dados()
         df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])].copy()
         
         if not df_r.empty:
-            # CRIANDO O LINK PARA EDIÇÃO
-            # O link vai apontar para a própria URL com o parâmetro 'editar_id'
-            base_url = "https://dashboardfinanceiro-lpm.streamlit.app/" # Sua URL oficial
-            df_r['Link_Editar'] = df_r['ID'].apply(lambda x: f"{base_url}?editar_id={x}")
+            # GERAÇÃO DOS LINKS COM ÍCONES
+            df_r['Editar'] = df_r['ID'].apply(lambda x: f"{BASE_URL}?editar_id={x}")
+            df_r['Excluir'] = df_r['ID'].apply(lambda x: f"{BASE_URL}?excluir_id={x}")
 
-            cols_show = ['ID', 'Link_Editar', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
+            cols = ['Editar', 'Excluir', 'ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
             
             st.dataframe(
-                df_r[cols_show],
+                df_r[cols],
                 hide_index=True,
                 column_config={
-                    "Link_Editar": st.column_config.LinkColumn(
-                        "📝 Editar",
-                        help="Clique para editar este lançamento",
-                        display_text="Abrir Edição"
-                    ),
+                    "Editar": st.column_config.LinkColumn("📝", display_text="📝"),
+                    "Excluir": st.column_config.LinkColumn("❌", display_text="❌"),
                     "ID": st.column_config.NumberColumn(format="%d")
                 }
             )
         else: st.warning("Sem dados.")
 
 def pagina_faturas():
-    st.title("💳 Ver Faturas de Cartão de Crédito")
+    st.title("💳 Ver Faturas")
+    df = carregar_dados()
     cartao = st.selectbox("Cartão", ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG'])
-    c1, c2 = st.columns(2)
-    ano = c1.number_input("Ano fatura", 2020, 2030, datetime.now().year)
-    mes = c2.selectbox("Mês fatura", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
-    if st.button("Ver Fatura"):
-        df = carregar_dados()
-        df_f = df[(df['Forma de Pagamento'] == cartao) & (df['Mês'] == MAPA_MESES[mes]) & (df['Ano'] == ano)]
-        if not df_f.empty:
-            st.metric(f"Total {cartao}", f"R$ {df_f['Valor'].sum():,.2f}")
-            cols = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
-            st.dataframe(df_f[cols], hide_index=True)
+    if st.button("Ver"):
+        df_f = df[df['Forma de Pagamento'] == cartao]
+        st.dataframe(df_f, hide_index=True)
 
 def pagina_configuracoes():
     st.title("⚙️ Configurações de Categoria")
     cats = carregar_categorias()
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.subheader("✨ Nova Categoria")
-        n_cat = st.text_input("Nome da Categoria", key="new_cat")
+        n_cat = st.text_input("Nova Categoria")
         if st.button("Adicionar"):
             if n_cat and n_cat not in cats:
-                if salvar_categoria_db(n_cat): st.success("Adicionada!"); st.rerun()
-    with c2:
-        st.subheader("📝 Editar Categoria")
-        ed_cat = st.selectbox("Editar Categoria", ["Selecione..."] + cats)
-        novo_n = st.text_input("Novo Nome")
-        if st.button("Atualizar"):
-            if ed_cat != "Selecione..." and novo_n:
-                if editar_categoria_db(ed_cat, novo_n): st.success("Atualizada!"); st.rerun()
-    with c3:
-        st.subheader("🗑️ Remover Categoria")
-        rm_cat = st.selectbox("Excluir Categoria", ["Selecione..."] + cats)
-        cat_sub = st.selectbox("Substituir registros por", ["Selecione..."] + [c for c in cats if c != rm_cat])
-        if st.button("Confirmar Exclusão"):
-            if rm_cat != "Selecione..." and cat_sub != "Selecione...":
-                if excluir_categoria_db(rm_cat, cat_sub): st.success("Excluída!"); st.rerun()
+                if salvar_categoria_db(n_cat): st.success("Ok!"); st.rerun()
 
 def pagina_graficos():
-    st.title("🎨 Gerador de Gráficos Analíticos")
+    st.title("🎨 Gráficos Analíticos")
     df = carregar_dados()
     if df.empty: return
-
-    escolha = st.selectbox("Escolha o Gráfico", ["Selecione...", "Gastos por Categoria (Mensal)", "Gasto com Cartão (Mensal)", "Balanço (Anual)", "Faturas (Anual)"])
-    
-    if "Mensal" in escolha:
-        c1, c2 = st.columns(2)
-        ano = c1.number_input("Ano", 2020, 2030, datetime.now().year, key="ano_g")
-        mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
-        
-        if st.button("Gerar Gráfico"):
-            df_m = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])]
-            if escolha == "Gastos por Categoria (Mensal)":
-                res = df_m[df_m['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum().reset_index()
-                fig = px.pie(res, values='Valor', names='Categoria', hole=0.4, title=f"Gastos em {MAPA_MESES[mes]}/{ano}")
-                st.plotly_chart(fig, use_container_width=True)
-            elif escolha == "Gasto com Cartão (Mensal)":
-                cart = ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG']
-                res = df_m[df_m['Forma de Pagamento'].isin(cart)].groupby('Forma de Pagamento')['Valor'].sum().reset_index()
-                fig = px.bar(res, x='Forma de Pagamento', y='Valor', color='Forma de Pagamento', text_auto='.2f', title="Gastos por Cartão")
-                st.plotly_chart(fig, use_container_width=True)
-
-    elif "Anual" in escolha:
-        ano = st.number_input("Ano", 2020, 2030, datetime.now().year, key="ano_a")
-        if st.button("Gerar Gráfico Anual"):
-            df_a = df[df['Ano'] == ano]
-            if escolha == "Balanço (Anual)":
-                res = df_a.groupby(['Mês', 'Tipo'])['Valor'].sum().reset_index()
-                fig = px.bar(res, x='Mês', y='Valor', color='Tipo', barmode='group', title=f"Balanço de {ano}")
-                st.plotly_chart(fig, use_container_width=True)
-            elif escolha == "Faturas (Anual)":
-                cart = ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG']
-                res = df_a[df_a['Forma de Pagamento'].isin(cart)].groupby(['Mês', 'Forma de Pagamento'])['Valor'].sum().reset_index()
-                fig = px.line(res, x='Mês', y='Valor', color='Forma de Pagamento', markers=True, title="Evolução das Faturas")
-                st.plotly_chart(fig, use_container_width=True)
+    res = df[df['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum().reset_index()
+    fig = px.pie(res, values='Valor', names='Categoria', hole=0.4)
+    st.plotly_chart(fig, use_container_width=True)
 
 # --- MENU ---
 st.sidebar.title("🏛️ Menu Principal")
 paginas = {
-    "Página Inicial": pagina_inicial,
-    "Adicionar Lançamento": pagina_adicionar,
-    "Gerenciar Lançamento": pagina_gerenciar,
-    "Relatório Mensal": pagina_relatorio,
-    "Ver Faturas de Cartão": pagina_faturas,
-    "Configurações de Categoria": pagina_configuracoes,
+    "Página Inicial": pagina_inicial, "Adicionar Lançamento": pagina_adicionar, "Gerenciar Lançamento": pagina_gerenciar,
+    "Relatório Mensal": pagina_relatorio, "Ver Faturas de Cartão": pagina_faturas, "Configurações de Categoria": pagina_configuracoes,
     "Gráficos Analíticos": pagina_graficos
 }
 
-# Verificamos se há uma página forçada pelo link de edição
+# Lógica de seleção automática de página
 pagina_ativa = st.session_state.get("pagina_atual", "Página Inicial")
 idx_menu = list(paginas.keys()).index(pagina_ativa)
-
 escolha = st.sidebar.radio("Navegue pelas páginas", list(paginas.keys()), index=idx_menu)
 
-# Limpamos o estado de navegação após a escolha ser feita
+# Limpa estados temporários
 if "pagina_atual" in st.session_state: del st.session_state.pagina_atual
+if "acao_gerenciar" in st.session_state and escolha != "Gerenciar Lançamento": del st.session_state.acao_gerenciar
 
 paginas[escolha]()
