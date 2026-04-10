@@ -39,6 +39,13 @@ MAPA_MESES = {
 }
 MESES_ORDENADOS = list(MAPA_MESES.values())
 
+MEIOS_PAGAMENTO_PADRAO = [
+    'Vale Alimentação', 'Débito Nubank', 'Débito Santander', 'Crédito Nubank', 
+    'Crédito Santander', 'Boleto', 'Crédito BTG', 'Dinheiro', 'Pix', 'Transf. BTG'
+]
+
+CLASSIFICACOES_PADRAO = ['Essencial', 'Não Essencial', 'Extra']
+
 def clean_valor(valor_str):
     s = str(valor_str).strip().replace('R$', '').replace(' ', '')
     if not s: return np.nan
@@ -215,8 +222,8 @@ def pagina_adicionar():
 
         st.subheader("Detalhes da Despesa")
         c1, c2 = st.columns(2)
-        classif = c1.selectbox("Classificação", ['Essencial', 'Não Essencial', 'Extra'])
-        metodo = c2.selectbox("Método de Pagamento", ['Vale Alimentação', 'Débito Nubank', 'Débito Santander', 'Crédito Nubank', 'Crédito Santander', 'Boleto', 'Crédito BTG', 'Dinheiro', 'Pix'])
+        classif = c1.selectbox("Classificação", CLASSIFICACOES_PADRAO)
+        metodo = c2.selectbox("Método de Pagamento", MEIOS_PAGAMENTO_PADRAO)
         forma = c1.selectbox("Forma de Pagamento", ['À Vista', 'Parcelado'])
         pago = c2.selectbox("Já foi pago?", ['Sim', 'Não'])
         obs = st.text_area("Observações", "-")
@@ -251,11 +258,10 @@ def pagina_gerenciar():
     st.title("🛠️ Gerenciar Lançamento")
     df = carregar_dados()
     if df is None or df.empty:
-        st.warning("Base de dados vazia ou indisponível.")
+        st.warning("Base de dados vazia.")
         return
 
-    # Campo de busca por ID
-    id_input = st.number_input("Digite o ID do lançamento para buscar", min_value=1, step=1)
+    id_input = st.number_input("ID do lançamento", min_value=1, step=1)
     
     if id_input in df['ID'].values:
         idx_alvo = df.index[df['ID'] == id_input].tolist()[0]
@@ -264,47 +270,59 @@ def pagina_gerenciar():
         st.markdown("---")
         st.subheader(f"📝 Central de Edição - ID: {id_input}")
         
-        # Formulário de edição pré-preenchido com os valores atuais do ID
         with st.form("form_edicao_lancamento"):
             col1, col2, col3 = st.columns(3)
             
             with col1:
                 nova_data = st.text_input("Data (DD/MM/AAAA)", value=str(dados_atuais['Data']))
-                novo_tipo = st.selectbox("Tipo", ['Despesa', 'Receita', 'Sobra'], 
-                                         index=['Despesa', 'Receita', 'Sobra'].index(dados_atuais['Tipo']) if dados_atuais['Tipo'] in ['Despesa', 'Receita', 'Sobra'] else 0)
+                
+                opcoes_tipo = ['Despesa', 'Receita', 'Sobra']
+                try: idx_tipo = opcoes_tipo.index(dados_atuais['Tipo'])
+                except: idx_tipo = 0
+                novo_tipo = st.selectbox("Tipo", opcoes_tipo, index=idx_tipo)
+                
                 novo_valor = st.number_input("Valor (R$)", value=float(dados_atuais['Valor']), format="%.2f")
             
             with col2:
                 nova_desc = st.text_input("Descrição", value=str(dados_atuais['Descrição']))
+                
                 cats = carregar_categorias()
                 try: cat_idx = cats.index(dados_atuais['Categoria'])
                 except: cat_idx = 0
                 nova_cat = st.selectbox("Categoria", cats, index=cat_idx)
-                nova_class = st.text_input("Classificação", value=str(dados_atuais['Classificação']))
+                
+                # --- MUDANÇA: CLASSIFICAÇÃO AGORA É SELECTBOX ---
+                try: idx_class = CLASSIFICACOES_PADRAO.index(dados_atuais['Classificação'])
+                except: idx_class = 0
+                nova_class = st.selectbox("Classificação", CLASSIFICACOES_PADRAO, index=idx_class)
 
             with col3:
-                nova_forma = st.text_input("Forma/Método de Pagamento", value=str(dados_atuais['Forma de Pagamento']))
-                # Validação para o Selectbox de pagamento realizado
+                # --- MUDANÇA: FORMA DE PAGAMENTO AGORA É SELECTBOX ---
+                try: idx_forma = MEIOS_PAGAMENTO_PADRAO.index(dados_atuais['Forma de Pagamento'])
+                except: idx_forma = 0
+                nova_forma = st.selectbox("Forma/Método de Pagamento", MEIOS_PAGAMENTO_PADRAO, index=idx_forma)
+                
                 status_atual = str(dados_atuais['Pagamento Realizado']).upper()
                 idx_status = 0
                 if status_atual == 'OK': idx_status = 0
                 elif status_atual == 'NOK': idx_status = 1
                 else: idx_status = 2
-                
                 novo_pago = st.selectbox("Pagamento Realizado", ['OK', 'NOK', 'N/A'], index=idx_status)
-                novas_parc = st.text_input("Parcelas (ex: 01 de 02)", value=str(dados_atuais['Parcelas']))
+                
+                novas_parc = st.text_input("Parcelas", value=str(dados_atuais['Parcelas']))
 
             novas_obs = st.text_area("Observações", value=str(dados_atuais['Observações']))
 
             st.write("**Ajuste Contábil (Referência)**")
             c1, c2 = st.columns(2)
-            novo_mes = c1.selectbox("Mês Contábil", MESES_ORDENADOS, index=MESES_ORDENADOS.index(dados_atuais['Mês']))
+            try: idx_mes = MESES_ORDENADOS.index(dados_atuais['Mês'])
+            except: idx_mes = 0
+            novo_mes = c1.selectbox("Mês Contábil", MESES_ORDENADOS, index=idx_mes)
             novo_ano = c2.number_input("Ano Contábil", value=int(dados_atuais['Ano']), step=1)
 
             btn_salvar = st.form_submit_button("💾 Salvar Alterações")
             
         st.markdown("---")
-        # Botão de exclusão separado por segurança
         if st.button("🗑️ Excluir este lançamento permanentemente"):
             df = df.drop(idx_alvo).copy()
             if salvar_dados(df):
@@ -312,7 +330,6 @@ def pagina_gerenciar():
                 st.rerun()
 
         if btn_salvar:
-            # Atualiza os dados no DataFrame
             df.at[idx_alvo, 'Data'] = nova_data
             df.at[idx_alvo, 'Tipo'] = novo_tipo
             df.at[idx_alvo, 'Valor'] = novo_valor
@@ -325,13 +342,10 @@ def pagina_gerenciar():
             df.at[idx_alvo, 'Mês'] = novo_mes
             df.at[idx_alvo, 'Ano'] = novo_ano
             df.at[idx_alvo, 'Parcelas'] = novas_parc
-
             if salvar_dados(df):
-                st.success("Lançamento atualizado com sucesso!")
-                st.rerun()
-    else:
-        if id_input > 0:
-            st.error(f"ID {id_input} não encontrado.")
+                st.success("Lançamento atualizado!"); st.rerun()
+    elif id_input > 0:
+        st.error(f"ID {id_input} não encontrado.")
 
 def pagina_relatorio():
     st.title("📊 Gerador de Relatório Financeiro")
@@ -389,39 +403,31 @@ def pagina_graficos():
     st.title("🎨 Gerador de Gráficos Analíticos")
     df = carregar_dados()
     if df.empty: return
-
     escolha = st.selectbox("Escolha o Gráfico", ["Selecione...", "Gastos por Categoria (Mensal)", "Gasto com Cartão (Mensal)", "Balanço (Anual)", "Faturas (Anual)"])
-    
     if "Mensal" in escolha:
         c1, c2 = st.columns(2)
         ano = c1.number_input("Ano", 2020, 2030, datetime.now().year, key="ano_g")
         mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
-        
         if st.button("Gerar Gráfico"):
             df_m = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])]
             if escolha == "Gastos por Categoria (Mensal)":
                 res = df_m[df_m['Tipo'] == 'Despesa'].groupby('Categoria')['Valor'].sum().reset_index()
-                fig = px.pie(res, values='Valor', names='Categoria', hole=0.4, title=f"Gastos em {MAPA_MESES[mes]}/{ano}")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(px.pie(res, values='Valor', names='Categoria', hole=0.4), use_container_width=True)
             elif escolha == "Gasto com Cartão (Mensal)":
                 cart = ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG']
                 res = df_m[df_m['Forma de Pagamento'].isin(cart)].groupby('Forma de Pagamento')['Valor'].sum().reset_index()
-                fig = px.bar(res, x='Forma de Pagamento', y='Valor', color='Forma de Pagamento', text_auto='.2f', title="Gastos por Cartão")
-                st.plotly_chart(fig, use_container_width=True)
-
+                st.plotly_chart(px.bar(res, x='Forma de Pagamento', y='Valor'), use_container_width=True)
     elif "Anual" in escolha:
         ano = st.number_input("Ano", 2020, 2030, datetime.now().year, key="ano_a")
         if st.button("Gerar Gráfico Anual"):
             df_a = df[df['Ano'] == ano]
             if escolha == "Balanço (Anual)":
                 res = df_a.groupby(['Mês', 'Tipo'])['Valor'].sum().reset_index()
-                fig = px.bar(res, x='Mês', y='Valor', color='Tipo', barmode='group', title=f"Balanço de {ano}")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(px.bar(res, x='Mês', y='Valor', color='Tipo', barmode='group'), use_container_width=True)
             elif escolha == "Faturas (Anual)":
                 cart = ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG']
                 res = df_a[df_a['Forma de Pagamento'].isin(cart)].groupby(['Mês', 'Forma de Pagamento'])['Valor'].sum().reset_index()
-                fig = px.line(res, x='Mês', y='Valor', color='Forma de Pagamento', markers=True, title="Evolução das Faturas")
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(px.line(res, x='Mês', y='Valor', color='Forma de Pagamento'), use_container_width=True)
 
 # --- MENU PRINCIPAL ---
 st.sidebar.title("🏛️ Menu Principal")
