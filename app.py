@@ -110,17 +110,31 @@ def salvar_categoria_db(nova_cat):
         except: return False
     return False
 
-def excluir_categoria_db(cat_nome):
+def excluir_categoria_db(cat_nome, cat_substituta):
     client = connect_to_gsheet()
     if client:
         try:
-            ws = client.open(NOME_DA_PLANILHA).worksheet("Categorias")
-            celula = ws.find(cat_nome)
+            spreadsheet = client.open(NOME_DA_PLANILHA)
+            
+            # 1. Atualizar registros antigos na Sheet1 (Substituição)
+            ws_dados = spreadsheet.sheet1
+            dados = ws_dados.get_all_values()
+            df_temp = pd.DataFrame(dados[1:], columns=dados[0])
+            if 'Categoria' in df_temp.columns:
+                df_temp['Categoria'] = df_temp['Categoria'].replace(cat_nome, cat_substituta)
+                salvar_dados(df_temp)
+
+            # 2. Remover da aba Categorias
+            ws_cat = spreadsheet.worksheet("Categorias")
+            celula = ws_cat.find(cat_nome)
             if celula:
-                ws.delete_rows(celula.row)
-                st.cache_data.clear()
-                return True
-        except: return False
+                ws_cat.delete_rows(celula.row)
+            
+            st.cache_data.clear()
+            return True
+        except Exception as e:
+            st.error(f"Erro ao excluir: {e}")
+            return False
     return False
 
 def editar_categoria_db(nome_antigo, nome_novo):
@@ -266,12 +280,17 @@ def pagina_relatorio():
     c1, c2 = st.columns(2)
     ano = c1.number_input("Selecione o Ano", 2020, 2030, datetime.now().year)
     mes = c2.selectbox("Selecione o Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
+    
     if st.button("Gerar Relatório"):
         df = carregar_dados()
         df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])]
+        
         if not df_r.empty:
-            st.dataframe(df_r, hide_index=True)
-        else: st.warning("Nenhum dado encontrado para este período.")
+            colunas_visiveis = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
+            colunas_existentes = [c for c in colunas_visiveis if c in df_r.columns]
+            st.dataframe(df_r[colunas_existentes], hide_index=True)
+        else:
+            st.warning("Nenhum dado encontrado para este período.")
 
 def pagina_faturas():
     st.title("💳 Ver Faturas de Cartão de Crédito")
@@ -279,13 +298,18 @@ def pagina_faturas():
     c1, c2 = st.columns(2)
     ano = c1.number_input("Ano da fatura", 2020, 2030, datetime.now().year)
     mes = c2.selectbox("Mês da fatura", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
+    
     if st.button("Ver Fatura"):
         df = carregar_dados()
         df_f = df[(df['Forma de Pagamento'] == cartao) & (df['Mês'] == MAPA_MESES[mes]) & (df['Ano'] == ano)]
+        
         if not df_f.empty:
             st.metric(f"Total {cartao}", f"R$ {df_f['Valor'].sum():,.2f}")
-            st.dataframe(df_f, hide_index=True)
-        else: st.info("Nenhum lançamento encontrado para esta fatura.")
+            colunas_visiveis = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
+            colunas_existentes = [c for c in colunas_visiveis if c in df_f.columns]
+            st.dataframe(df_f[colunas_existentes], hide_index=True)
+        else:
+            st.info("Nenhum lançamento encontrado para esta fatura.")
 
 def pagina_configuracoes():
     st.title("⚙️ Configurações de Categoria")
@@ -307,9 +331,22 @@ def pagina_configuracoes():
                     if editar_categoria_db(ed_cat, novo_n): st.success("Tudo atualizado!"); st.rerun()
     with c3:
         st.subheader("🗑️ Remover Categoria")
-        rm_cat = st.selectbox("Selecionar para remover", ["Selecione..."] + cats, key="sel_rm")
-        if st.button("Remover"):
-            if rm_cat != "Selecione..." and excluir_categoria_db(rm_cat): st.success("Categoria removida!"); st.rerun()
+        rm_cat = st.selectbox("Categoria para excluir", ["Selecione..."] + cats, key="sel_rm")
+        
+        # LÓGICA DE SUBSTITUIÇÃO OBRIGATÓRIA
+        cats_para_substituir = [c for c in cats if c != rm_cat]
+        cat_destino = st.selectbox("Substituir registros por:", ["Selecione..."] + cats_para_substituir, key="dest_rm")
+        
+        st.warning("Ao remover, todos os lançamentos da categoria excluída serão movidos para a categoria substituta.")
+        
+        if st.button("Confirmar Exclusão"):
+            if rm_cat != "Selecione..." and cat_destino != "Selecione...":
+                with st.spinner("Movendo registros e excluindo categoria..."):
+                    if excluir_categoria_db(rm_cat, cat_destino):
+                        st.success(f"Categoria excluída! Registros movidos para {cat_destino}")
+                        st.rerun()
+            else:
+                st.error("Selecione a categoria a ser removida E a categoria de destino.")
 
 def pagina_graficos():
     st.title("🎨 Gerador de Gráficos Analíticos")
