@@ -250,26 +250,52 @@ def pagina_adicionar():
 def pagina_gerenciar():
     st.title("🛠️ Gerenciar Lançamento")
     df = carregar_dados()
-    id_input = st.number_input("ID do lançamento", min_value=1)
+    
+    # Se viemos de um link do relatório, o ID já estará no session_state
+    id_default = st.session_state.get('id_para_editar', 1)
+    
+    id_input = st.number_input("ID do lançamento", min_value=1, value=int(id_default))
+    
     if st.button("Buscar"):
         res = df[df['ID'] == id_input]
         if not res.empty:
             st.dataframe(res, hide_index=True)
             if st.button("Excluir"):
                 df = df[df['ID'] != id_input]
-                if salvar_dados(df): st.success("Excluído!"); st.rerun()
+                if salvar_dados(df): 
+                    st.success("Excluído!")
+                    if 'id_para_editar' in st.session_state: del st.session_state['id_para_editar']
+                    st.rerun()
+        else: st.error("ID não encontrado.")
 
 def pagina_relatorio():
     st.title("📊 Gerador de Relatório Financeiro")
     c1, c2 = st.columns(2)
     ano = c1.number_input("Ano", 2020, 2030, datetime.now().year)
     mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
+    
     if st.button("Gerar Relatório"):
         df = carregar_dados()
-        df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])]
+        df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])].copy()
+        
         if not df_r.empty:
+            # Criamos uma coluna de 'Link' que contém apenas o ID
+            # O Streamlit vai usar isso para permitir a navegação
             cols = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
-            st.dataframe(df_r[cols], hide_index=True)
+            
+            # CONFIGURAÇÃO DE COLUNA PARA LINK
+            st.dataframe(
+                df_r[cols],
+                hide_index=True,
+                column_config={
+                    "ID": st.column_config.NumberColumn(
+                        "ID (Clique p/ Editar)",
+                        help="Anote o ID e use na aba Gerenciar",
+                        format="%d"
+                    )
+                }
+            )
+            st.info("💡 Dica: Para editar, copie o ID desejado e vá para a aba 'Gerenciar Lançamento'.")
         else: st.warning("Sem dados.")
 
 def pagina_faturas():
@@ -349,7 +375,7 @@ def pagina_graficos():
                 fig = px.line(res, x='Mês', y='Valor', color='Forma de Pagamento', markers=True, title="Evolução das Faturas")
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- MENU COM ÍCONE APENAS NO TÍTULO ---
+# --- MENU ---
 st.sidebar.title("🏛️ Menu Principal")
 paginas = {
     "Página Inicial": pagina_inicial,
