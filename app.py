@@ -230,8 +230,8 @@ def pagina_adicionar():
             st.subheader("Detalhes do Parcelamento")
             cp1, cp2, cp3 = st.columns(3)
             n_parc = cp1.number_input("Total Parcelas", 2, 60, 2)
-            m_ini = cp2.number_input("Mês da 1ª", 1, 12, m_cont)
-            a_ini = cp3.number_input("Ano da 1ª", 2020, 2030, a_cont)
+            m_ini = cp2.number_input("Mês da 1ª parcela", 1, 12, m_cont)
+            a_ini = cp3.number_input("Ano da 1ª parcela", 2020, 2030, a_cont)
 
         if st.form_submit_button("Adicionar Lançamento"):
             novos = []
@@ -250,14 +250,88 @@ def pagina_adicionar():
 def pagina_gerenciar():
     st.title("🛠️ Gerenciar Lançamento")
     df = carregar_dados()
-    id_input = st.number_input("ID do lançamento", min_value=1)
-    if st.button("Buscar"):
-        res = df[df['ID'] == id_input]
-        if not res.empty:
-            st.dataframe(res, hide_index=True)
-            if st.button("Excluir"):
-                df = df[df['ID'] != id_input]
-                if salvar_dados(df): st.success("Excluído!"); st.rerun()
+    if df is None or df.empty:
+        st.warning("Base de dados vazia ou indisponível.")
+        return
+
+    # Campo de busca por ID
+    id_input = st.number_input("Digite o ID do lançamento para buscar", min_value=1, step=1)
+    
+    if id_input in df['ID'].values:
+        idx_alvo = df.index[df['ID'] == id_input].tolist()[0]
+        dados_atuais = df.loc[idx_alvo]
+
+        st.markdown("---")
+        st.subheader(f"📝 Central de Edição - ID: {id_input}")
+        
+        # Formulário de edição pré-preenchido com os valores atuais do ID
+        with st.form("form_edicao_lancamento"):
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                nova_data = st.text_input("Data (DD/MM/AAAA)", value=str(dados_atuais['Data']))
+                novo_tipo = st.selectbox("Tipo", ['Despesa', 'Receita', 'Sobra'], 
+                                         index=['Despesa', 'Receita', 'Sobra'].index(dados_atuais['Tipo']) if dados_atuais['Tipo'] in ['Despesa', 'Receita', 'Sobra'] else 0)
+                novo_valor = st.number_input("Valor (R$)", value=float(dados_atuais['Valor']), format="%.2f")
+            
+            with col2:
+                nova_desc = st.text_input("Descrição", value=str(dados_atuais['Descrição']))
+                cats = carregar_categorias()
+                try: cat_idx = cats.index(dados_atuais['Categoria'])
+                except: cat_idx = 0
+                nova_cat = st.selectbox("Categoria", cats, index=cat_idx)
+                nova_class = st.text_input("Classificação", value=str(dados_atuais['Classificação']))
+
+            with col3:
+                nova_forma = st.text_input("Forma/Método de Pagamento", value=str(dados_atuais['Forma de Pagamento']))
+                # Validação para o Selectbox de pagamento realizado
+                status_atual = str(dados_atuais['Pagamento Realizado']).upper()
+                idx_status = 0
+                if status_atual == 'OK': idx_status = 0
+                elif status_atual == 'NOK': idx_status = 1
+                else: idx_status = 2
+                
+                novo_pago = st.selectbox("Pagamento Realizado", ['OK', 'NOK', 'N/A'], index=idx_status)
+                novas_parc = st.text_input("Parcelas (ex: 01 de 02)", value=str(dados_atuais['Parcelas']))
+
+            novas_obs = st.text_area("Observações", value=str(dados_atuais['Observações']))
+
+            st.write("**Ajuste Contábil (Referência)**")
+            c1, c2 = st.columns(2)
+            novo_mes = c1.selectbox("Mês Contábil", MESES_ORDENADOS, index=MESES_ORDENADOS.index(dados_atuais['Mês']))
+            novo_ano = c2.number_input("Ano Contábil", value=int(dados_atuais['Ano']), step=1)
+
+            btn_salvar = st.form_submit_button("💾 Salvar Alterações")
+            
+        st.markdown("---")
+        # Botão de exclusão separado por segurança
+        if st.button("🗑️ Excluir este lançamento permanentemente"):
+            df = df.drop(idx_alvo).copy()
+            if salvar_dados(df):
+                st.success(f"Lançamento {id_input} removido!")
+                st.rerun()
+
+        if btn_salvar:
+            # Atualiza os dados no DataFrame
+            df.at[idx_alvo, 'Data'] = nova_data
+            df.at[idx_alvo, 'Tipo'] = novo_tipo
+            df.at[idx_alvo, 'Valor'] = novo_valor
+            df.at[idx_alvo, 'Descrição'] = nova_desc
+            df.at[idx_alvo, 'Categoria'] = nova_cat
+            df.at[idx_alvo, 'Classificação'] = nova_class
+            df.at[idx_alvo, 'Forma de Pagamento'] = nova_forma
+            df.at[idx_alvo, 'Pagamento Realizado'] = novo_pago
+            df.at[idx_alvo, 'Observações'] = novas_obs
+            df.at[idx_alvo, 'Mês'] = novo_mes
+            df.at[idx_alvo, 'Ano'] = novo_ano
+            df.at[idx_alvo, 'Parcelas'] = novas_parc
+
+            if salvar_dados(df):
+                st.success("Lançamento atualizado com sucesso!")
+                st.rerun()
+    else:
+        if id_input > 0:
+            st.error(f"ID {id_input} não encontrado.")
 
 def pagina_relatorio():
     st.title("📊 Gerador de Relatório Financeiro")
@@ -349,7 +423,7 @@ def pagina_graficos():
                 fig = px.line(res, x='Mês', y='Valor', color='Forma de Pagamento', markers=True, title="Evolução das Faturas")
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- MENU COM ÍCONE APENAS NO TÍTULO ---
+# --- MENU PRINCIPAL ---
 st.sidebar.title("🏛️ Menu Principal")
 paginas = {
     "Página Inicial": pagina_inicial,
