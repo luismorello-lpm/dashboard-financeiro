@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import datetime
-import plotly.express as px  # Nova biblioteca para gráficos interativos
+import plotly.express as px  
 import plotly.graph_objects as go
 import gspread
 from google.oauth2.service_account import Credentials
@@ -205,6 +205,7 @@ def pagina_adicionar():
     proximo_id = int(df_existente['ID'].max() + 1) if not df_existente.empty else 1
 
     with st.form("novo_lancamento_form"):
+        st.subheader("Detalhes do Lançamento")
         c1, c2, c3 = st.columns(3)
         data_l = c1.date_input("Data do Lançamento", datetime.now())
         tipo = c2.selectbox("Tipo", ['Despesa', 'Receita', 'Sobra'])
@@ -212,6 +213,7 @@ def pagina_adicionar():
         desc = st.text_input("Descrição")
         cat = st.selectbox("Categoria", cats)
 
+        st.subheader("Detalhes da Despesa")
         c1, c2 = st.columns(2)
         classif = c1.selectbox("Classificação", ['Essencial', 'Não Essencial', 'Extra'])
         metodo = c2.selectbox("Método de Pagamento", ['Vale Alimentação', 'Débito Nubank', 'Débito Santander', 'Crédito Nubank', 'Crédito Santander', 'Boleto', 'Crédito BTG', 'Dinheiro', 'Pix'])
@@ -219,11 +221,13 @@ def pagina_adicionar():
         pago = c2.selectbox("Já foi pago?", ['Sim', 'Não'])
         obs = st.text_area("Observações", "-")
 
+        st.subheader("Mês/Ano Contábil")
         c1, c2 = st.columns(2)
         m_cont = c1.number_input("Mês Contábil", 1, 12, datetime.now().month)
         a_cont = c2.number_input("Ano Contábil", 2020, 2030, datetime.now().year)
         
         if forma == 'Parcelado':
+            st.subheader("Detalhes do Parcelamento")
             cp1, cp2, cp3 = st.columns(3)
             n_parc = cp1.number_input("Total Parcelas", 2, 60, 2)
             m_ini = cp2.number_input("Mês da 1ª", 1, 12, m_cont)
@@ -256,7 +260,7 @@ def pagina_gerenciar():
                 if salvar_dados(df): st.success("Excluído!"); st.rerun()
 
 def pagina_relatorio():
-    st.title("📊 Relatório Financeiro")
+    st.title("📊 Gerador de Relatório Financeiro")
     c1, c2 = st.columns(2)
     ano = c1.number_input("Ano", 2020, 2030, datetime.now().year)
     mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
@@ -269,7 +273,7 @@ def pagina_relatorio():
         else: st.warning("Sem dados.")
 
 def pagina_faturas():
-    st.title("💳 Ver Faturas")
+    st.title("💳 Ver Faturas de Cartão de Crédito")
     cartao = st.selectbox("Cartão", ['Crédito Nubank', 'Crédito Santander', 'Crédito BTG'])
     c1, c2 = st.columns(2)
     ano = c1.number_input("Ano fatura", 2020, 2030, datetime.now().year)
@@ -287,17 +291,20 @@ def pagina_configuracoes():
     cats = carregar_categorias()
     c1, c2, c3 = st.columns(3)
     with c1:
-        n_cat = st.text_input("Nova Categoria")
+        st.subheader("✨ Nova Categoria")
+        n_cat = st.text_input("Nome da Categoria", key="new_cat")
         if st.button("Adicionar"):
             if n_cat and n_cat not in cats:
                 if salvar_categoria_db(n_cat): st.success("Adicionada!"); st.rerun()
     with c2:
+        st.subheader("📝 Editar Categoria")
         ed_cat = st.selectbox("Editar Categoria", ["Selecione..."] + cats)
         novo_n = st.text_input("Novo Nome")
         if st.button("Atualizar"):
             if ed_cat != "Selecione..." and novo_n:
                 if editar_categoria_db(ed_cat, novo_n): st.success("Atualizada!"); st.rerun()
     with c3:
+        st.subheader("🗑️ Remover Categoria")
         rm_cat = st.selectbox("Excluir Categoria", ["Selecione..."] + cats)
         cat_sub = st.selectbox("Substituir registros por", ["Selecione..."] + [c for c in cats if c != rm_cat])
         if st.button("Confirmar Exclusão"):
@@ -305,7 +312,7 @@ def pagina_configuracoes():
                 if excluir_categoria_db(rm_cat, cat_sub): st.success("Excluída!"); st.rerun()
 
 def pagina_graficos():
-    st.title("🎨 Gráficos Analíticos Interativos")
+    st.title("🎨 Gerador de Gráficos Analíticos")
     df = carregar_dados()
     if df.empty: return
 
@@ -342,15 +349,16 @@ def pagina_graficos():
                 fig = px.line(res, x='Mês', y='Valor', color='Forma de Pagamento', markers=True, title="Evolução das Faturas")
                 st.plotly_chart(fig, use_container_width=True)
 
-# --- MENU ---
+# --- MENU COM ÍCONES RESTAURADOS ---
+st.sidebar.title("🏛️ Menu Principal")
 paginas = {
-    "Página Inicial": pagina_inicial,
-    "Adicionar Lançamento": pagina_adicionar,
-    "Gerenciar Lançamento": pagina_gerenciar,
-    "Relatório Mensal": pagina_relatorio,
-    "Ver Faturas de Cartão": pagina_faturas,
-    "Configurações de Categoria": pagina_configuracoes,
-    "Gráficos Analíticos": pagina_graficos
+    "🏠 Página Inicial": pagina_inicial,
+    "✍️ Adicionar Lançamento": pagina_adicionar,
+    "🛠️ Gerenciar Lançamento": pagina_gerenciar,
+    "📊 Relatório Mensal": pagina_relatorio,
+    "💳 Ver Faturas de Cartão": pagina_faturas,
+    "⚙️ Configurações de Categoria": pagina_configuracoes,
+    "🎨 Gráficos Analíticos": pagina_graficos
 }
-escolha = st.sidebar.radio("Navegue:", list(paginas.keys()))
+escolha = st.sidebar.radio("Navegue pelas páginas", list(paginas.keys()))
 paginas[escolha]()
