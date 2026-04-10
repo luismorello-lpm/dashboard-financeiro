@@ -266,17 +266,12 @@ def pagina_relatorio():
     c1, c2 = st.columns(2)
     ano = c1.number_input("Selecione o Ano", 2020, 2030, datetime.now().year)
     mes = c2.selectbox("Selecione o Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
-    
     if st.button("Gerar Relatório"):
         df = carregar_dados()
         df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])]
-        
         if not df_r.empty:
-            colunas_visiveis = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
-            colunas_existentes = [c for c in colunas_visiveis if c in df_r.columns]
-            st.dataframe(df_r[colunas_existentes], hide_index=True)
-        else:
-            st.warning("Nenhum dado encontrado para este período.")
+            st.dataframe(df_r, hide_index=True)
+        else: st.warning("Nenhum dado encontrado para este período.")
 
 def pagina_faturas():
     st.title("💳 Ver Faturas de Cartão de Crédito")
@@ -284,21 +279,13 @@ def pagina_faturas():
     c1, c2 = st.columns(2)
     ano = c1.number_input("Ano da fatura", 2020, 2030, datetime.now().year)
     mes = c2.selectbox("Mês da fatura", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
-    
     if st.button("Ver Fatura"):
         df = carregar_dados()
         df_f = df[(df['Forma de Pagamento'] == cartao) & (df['Mês'] == MAPA_MESES[mes]) & (df['Ano'] == ano)]
-        
         if not df_f.empty:
             st.metric(f"Total {cartao}", f"R$ {df_f['Valor'].sum():,.2f}")
-            
-            # FILTRO DE COLUNAS SOLICITADO
-            colunas_visiveis = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
-            colunas_existentes = [c for c in colunas_visiveis if c in df_f.columns]
-            
-            st.dataframe(df_f[colunas_existentes], hide_index=True)
-        else:
-            st.info("Nenhum lançamento encontrado para esta fatura.")
+            st.dataframe(df_f, hide_index=True)
+        else: st.info("Nenhum lançamento encontrado para esta fatura.")
 
 def pagina_configuracoes():
     st.title("⚙️ Configurações de Categoria")
