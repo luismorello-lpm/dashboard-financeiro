@@ -279,84 +279,93 @@ def pagina_gerenciar():
         st.warning("Base de dados vazia.")
         return
 
-    id_input = st.number_input("ID do lançamento", min_value=1, step=1)
-    
-    if id_input in df['ID'].values:
-        idx_alvo = df.index[df['ID'] == id_input].tolist()[0]
-        dados_atuais = df.loc[idx_alvo]
+    # 1. Busca por ID com Botão
+    col_id, col_btn = st.columns([3, 1])
+    id_input = col_id.number_input("Digite o ID do lançamento", min_value=1, step=1)
+    btn_buscar = col_btn.button("🔍 Buscar Lançamento", use_container_width=True)
 
-        st.markdown("---")
-        st.subheader(f"📝 Central de Edição - ID: {id_input}")
+    if btn_buscar:
+        st.session_state.id_gerenciar = id_input
+
+    if 'id_gerenciar' in st.session_state:
+        id_atual = st.session_state.id_gerenciar
         
-        with st.form("form_edicao_lancamento"):
-            col1, col2, col3 = st.columns(3)
+        if id_atual in df['ID'].values:
+            idx_alvo = df.index[df['ID'] == id_atual].tolist()[0]
+            dados_atuais = df.loc[idx_alvo]
+
+            st.success(f"Lançamento ID {id_atual} encontrado!")
+            st.dataframe(df.loc[[idx_alvo]], hide_index=True)
+            st.markdown("---")
             
-            with col1:
-                nova_data = st.text_input("Data (DD/MM/AAAA)", value=str(dados_atuais['Data']))
-                opcoes_tipo = ['Despesa', 'Receita', 'Sobra']
-                try: idx_tipo = opcoes_tipo.index(dados_atuais['Tipo'])
-                except: idx_tipo = 0
-                novo_tipo = st.selectbox("Tipo", opcoes_tipo, index=idx_tipo)
-                novo_valor = st.number_input("Valor (R$)", value=float(dados_atuais['Valor']), format="%.2f")
-            
-            with col2:
-                nova_desc = st.text_input("Descrição", value=str(dados_atuais['Descrição']))
-                cats = carregar_categorias()
-                try: cat_idx = cats.index(dados_atuais['Categoria'])
-                except: cat_idx = 0
-                nova_cat = st.selectbox("Categoria", cats, index=cat_idx)
-                try: idx_class = CLASSIFICACOES_PADRAO.index(dados_atuais['Classificação'])
-                except: idx_class = 0
-                nova_class = st.selectbox("Classificação", CLASSIFICACOES_PADRAO, index=idx_class)
+            col_edit, col_del = st.columns(2)
 
-            with col3:
-                try: idx_forma = MEIOS_PAGAMENTO_PADRAO.index(dados_atuais['Forma de Pagamento'])
-                except: idx_forma = 0
-                nova_forma = st.selectbox("Forma/Método de Pagamento", MEIOS_PAGAMENTO_PADRAO, index=idx_forma)
-                status_atual = str(dados_atuais['Pagamento Realizado']).upper()
-                idx_status = 0
-                if status_atual == 'OK': idx_status = 0
-                elif status_atual == 'NOK': idx_status = 1
-                else: idx_status = 2
-                novo_pago = st.selectbox("Pagamento Realizado", ['OK', 'NOK', 'N/A'], index=idx_status)
-                novas_parc = st.text_input("Parcelas", value=str(dados_atuais['Parcelas']))
+            # 2. Central de Edição sob demanda (Expander)
+            with col_edit:
+                with st.expander("📝 Editar Lançamento"):
+                    with st.form("form_edicao_lancamento"):
+                        c1, c2, c3 = st.columns(3)
+                        with c1:
+                            nova_data = st.text_input("Data", value=str(dados_atuais['Data']))
+                            novo_tipo = st.selectbox("Tipo", ['Despesa', 'Receita', 'Sobra'], index=['Despesa', 'Receita', 'Sobra'].index(dados_atuais['Tipo']) if dados_atuais['Tipo'] in ['Despesa', 'Receita', 'Sobra'] else 0)
+                            novo_valor = st.number_input("Valor (R$)", value=float(dados_atuais['Valor']), format="%.2f")
+                        with c2:
+                            nova_desc = st.text_input("Descrição", value=str(dados_atuais['Descrição']))
+                            cats = carregar_categorias()
+                            try: cat_idx = cats.index(dados_atuais['Categoria'])
+                            except: cat_idx = 0
+                            nova_cat = st.selectbox("Categoria", cats, index=cat_idx)
+                            try: cl_idx = CLASSIFICACOES_PADRAO.index(dados_atuais['Classificação'])
+                            except: cl_idx = 0
+                            nova_class = st.selectbox("Classificação", CLASSIFICACOES_PADRAO, index=cl_idx)
+                        with c3:
+                            try: forma_idx = MEIOS_PAGAMENTO_PADRAO.index(dados_atuais['Forma de Pagamento'])
+                            except: forma_idx = 0
+                            nova_forma = st.selectbox("Forma de Pagamento", MEIOS_PAGAMENTO_PADRAO, index=forma_idx)
+                            status_atuais = ['OK', 'NOK', 'N/A']
+                            status_val = str(dados_atuais['Pagamento Realizado']).upper()
+                            novo_pago = st.selectbox("Pago?", status_atuais, index=status_atuais.index(status_val) if status_val in status_atuais else 1)
+                            novas_parc = st.text_input("Parcelas", value=str(dados_atuais['Parcelas']))
+                        
+                        novas_obs = st.text_area("Observações", value=str(dados_atuais['Observações']))
+                        ca1, ca2 = st.columns(2)
+                        try: mes_idx = MESES_ORDENADOS.index(dados_atuais['Mês'])
+                        except: mes_idx = 0
+                        novo_mes = ca1.selectbox("Mês Contábil", MESES_ORDENADOS, index=mes_idx)
+                        novo_ano = ca2.number_input("Ano Contábil", value=int(dados_atuais['Ano']), step=1)
 
-            novas_obs = st.text_area("Observações", value=str(dados_atuais['Observações']))
+                        if st.form_submit_button("💾 Salvar Alterações"):
+                            df.at[idx_alvo, 'Data'] = nova_data
+                            df.at[idx_alvo, 'Tipo'] = novo_tipo
+                            df.at[idx_alvo, 'Valor'] = novo_valor
+                            df.at[idx_alvo, 'Descrição'] = nova_desc
+                            df.at[idx_alvo, 'Categoria'] = nova_cat
+                            df.at[idx_alvo, 'Classificação'] = nova_class
+                            df.at[idx_alvo, 'Forma de Pagamento'] = nova_forma
+                            df.at[idx_alvo, 'Pagamento Realizado'] = novo_pago
+                            df.at[idx_alvo, 'Observações'] = novas_obs
+                            df.at[idx_alvo, 'Mês'] = novo_mes
+                            df.at[idx_alvo, 'Ano'] = novo_ano
+                            df.at[idx_alvo, 'Parcelas'] = novas_parc
+                            if salvar_dados(df):
+                                st.toast(f"ID {id_atual} atualizado!", icon="✅")
+                                st.subheader("✅ Como ficou a edição:")
+                                st.dataframe(df.loc[[idx_alvo]], hide_index=True)
+                                st.rerun()
 
-            st.write("**Ajuste Contábil (Referência)**")
-            c1, c2 = st.columns(2)
-            try: idx_mes = MESES_ORDENADOS.index(dados_atuais['Mês'])
-            except: idx_mes = 0
-            novo_mes = c1.selectbox("Mês Contábil", MESES_ORDENADOS, index=idx_mes)
-            novo_ano = c2.number_input("Ano Contábil", value=int(dados_atuais['Ano']), step=1)
-
-            btn_salvar = st.form_submit_button("💾 Salvar Alterações")
-            
-        st.markdown("---")
-        if st.button("🗑️ Excluir este lançamento permanentemente"):
-            df = df.drop(idx_alvo).reset_index(drop=True)
-            if not df.empty:
-                df['ID'] = range(1, len(df) + 1)
-            if salvar_dados(df):
-                st.success("Removido e IDs reorganizados!"); st.rerun()
-
-        if btn_salvar:
-            df.at[idx_alvo, 'Data'] = nova_data
-            df.at[idx_alvo, 'Tipo'] = novo_tipo
-            df.at[idx_alvo, 'Valor'] = novo_valor
-            df.at[idx_alvo, 'Descrição'] = nova_desc
-            df.at[idx_alvo, 'Categoria'] = nova_cat
-            df.at[idx_alvo, 'Classificação'] = nova_class
-            df.at[idx_alvo, 'Forma de Pagamento'] = nova_forma
-            df.at[idx_alvo, 'Pagamento Realizado'] = novo_pago
-            df.at[idx_alvo, 'Observações'] = novas_obs
-            df.at[idx_alvo, 'Mês'] = novo_mes
-            df.at[idx_alvo, 'Ano'] = novo_ano
-            df.at[idx_alvo, 'Parcelas'] = novas_parc
-            if salvar_dados(df):
-                st.success("Lançamento atualizado!"); st.rerun()
-    elif id_input > 0:
-        st.error(f"ID {id_input} não encontrado.")
+            # 3. Exclusão com Confirmação (Pop-over)
+            with col_del:
+                with st.popover("🗑️ Excluir Lançamento"):
+                    st.warning(f"Deseja realmente apagar o ID {id_atual}?")
+                    if st.button(f"Confirmar Exclusão do ID {id_atual}", type="primary"):
+                        df = df.drop(idx_alvo).reset_index(drop=True)
+                        if not df.empty: df['ID'] = range(1, len(df) + 1)
+                        if salvar_dados(df):
+                            st.success(f"O lançamento ID {id_atual} foi excluído com sucesso!")
+                            del st.session_state.id_gerenciar
+                            st.rerun()
+        else:
+            st.error(f"ID {id_atual} não encontrado.")
 
 def pagina_relatorio():
     st.title("📊 Gerador de Relatório Financeiro")
