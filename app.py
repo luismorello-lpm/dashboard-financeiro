@@ -380,14 +380,34 @@ def pagina_relatorio():
     st.title("📊 Gerador de Relatório Financeiro")
     c1, c2 = st.columns(2)
     ano = c1.number_input("Ano", 2020, 2030, datetime.now().year)
-    mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month-1)
+    mes = c2.selectbox("Mês", list(range(1, 13)), format_func=lambda x: MAPA_MESES[x], index=datetime.now().month - 1)
+    
     if st.button("Gerar Relatório"):
         df = carregar_dados()
-        df_r = df[(df['Ano'] == ano) & (df['Mês'] == MAPA_MESES[mes])]
+        if df.empty:
+            st.warning("Base de dados vazia.")
+            return
+
+        nome_mes = MAPA_MESES[mes]
+        df_r = df[(df['Ano'] == ano) & (df['Mês'] == nome_mes)].copy()
+
         if not df_r.empty:
-            cols = ['ID', 'Data', 'Descrição', 'Categoria', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Observações']
-            st.dataframe(df_r[cols], hide_index=True)
-        else: st.warning("Sem dados.")
+            df_r['Valor_Calc'] = np.where(df_r['Tipo'] == 'Despesa', -df_r['Valor'], df_r['Valor'])
+            receitas = df_r[df_r['Valor_Calc'] > 0]['Valor_Calc'].sum()
+            despesas = df_r[df_r['Valor_Calc'] < 0]['Valor_Calc'].sum()
+            saldo = receitas + despesas
+
+            st.markdown("---")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("🟢 Entradas (Receitas)", f"R$ {receitas:,.2f}")
+            m2.metric("🔴 Saídas (Despesas)", f"R$ {abs(despesas):,.2f}")
+            m3.metric("💰 Saldo do Período", f"R$ {saldo:,.2f}")
+
+            st.markdown(f"### Transações de {nome_mes}/{ano}")
+            cols_disponiveis = [col for col in ['ID', 'Data', 'Tipo', 'Descrição', 'Categoria', 'Classificação', 'Forma de Pagamento', 'Parcelas', 'Valor', 'Pagamento Realizado', 'Observações'] if col in df_r.columns]
+            st.dataframe(df_r[cols_disponiveis], hide_index=True, use_container_width=True)
+        else:
+            st.warning(f"Nenhum lançamento encontrado para {nome_mes}/{ano}.")
 
 def pagina_faturas():
     st.title("💳 Ver Faturas de Cartão de Crédito")
